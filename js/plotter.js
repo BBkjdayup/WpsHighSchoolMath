@@ -1,10 +1,11 @@
 (function (root, factory) {
-  var api = factory();
+  var configApi = typeof module === "object" && module.exports ? require("./plot-config.js") : root.MathPlotConfig;
+  var api = factory(configApi);
   root.FunctionPlotter = api;
   if (typeof module === "object" && module.exports) {
     module.exports = api;
   }
-})(typeof window !== "undefined" ? window : globalThis, function () {
+})(typeof window !== "undefined" ? window : globalThis, function (configApi) {
   var FUNCTIONS = {
     sin: Math.sin,
     cos: Math.cos,
@@ -23,10 +24,10 @@
     exp: Math.exp,
     floor: Math.floor,
     ceil: Math.ceil,
-    sign: Math.sign
+    sign: function (value) { return value === 0 ? 0 : (value > 0 ? 1 : -1); }
   };
 
-  var COLORS = ["#2563eb", "#dc2626", "#059669", "#7c3aed", "#d97706", "#0891b2"];
+  var DASHES = { solid: "", dashed: "9 5", dotted: "2 5", dashdot: "9 4 2 4" };
 
   function normalizeExpression(expression) {
     return String(expression || "")
@@ -116,6 +117,7 @@
   }
 
   function compileExpression(expression) {
+    if (String(expression || "").length > 1000) { throw new Error("表达式过长，请缩短到 1000 个字符以内。"); }
     var tokens = rawTokens(expression);
     var position = 0;
 
@@ -203,7 +205,7 @@
         if (name === "e") {
           return function () { return Math.E; };
         }
-        if (!FUNCTIONS[name]) {
+        if (!Object.prototype.hasOwnProperty.call(FUNCTIONS, name)) {
           throw new Error("不支持的函数或变量：" + name);
         }
         take("(");
@@ -263,34 +265,24 @@
     return String(Number(value.toFixed(4)));
   }
 
-  function validateBounds(bounds) {
-    var result = {
-      xMin: Number(bounds.xMin),
-      xMax: Number(bounds.xMax),
-      yMin: Number(bounds.yMin),
-      yMax: Number(bounds.yMax)
-    };
-    if (!isFinite(result.xMin) || !isFinite(result.xMax) || result.xMin >= result.xMax) {
-      throw new Error("横坐标范围无效");
-    }
-    if (!isFinite(result.yMin) || !isFinite(result.yMax) || result.yMin >= result.yMax) {
-      throw new Error("纵坐标范围无效");
-    }
-    return result;
-  }
-
-  function generatePlotSvg(expressions, bounds, options) {
-    var formulas = expressions
-      .map(normalizeExpression)
-      .filter(function (value) { return value.length > 0; });
-    if (!formulas.length) {
-      throw new Error("请至少输入一个函数表达式");
-    }
-
-    var compiled = formulas.map(function (formula) {
-      return { label: formula, evaluate: compileExpression(formula) };
+  function generatePlotSvg(expressions, bounds, options, curves, points) {
+    if (!configApi) { throw new Error("绘图配置组件未加载，请重新打开插件。"); }
+    var config = configApi.normalizeConfig({ expressions: expressions, bounds: bounds, options: options, curves: curves, points: points });
+    var formulas = config.expressions.map(normalizeExpression);
+    var compiled = [];
+    formulas.forEach(function (formula, index) {
+      var curve = configApi.normalizeCurve(config.curves && config.curves[index], index);
+      if (!curve.visible) { return; }
+      try {
+        compiled.push({ label: formula, evaluate: compileExpression(formula), curve: curve, index: index });
+      } catch (error) {
+        error.message = "第 " + (index + 1) + " 条函数：" + error.message;
+        error.curveIndex = index;
+        throw error;
+      }
     });
-    var limits = validateBounds(bounds);
+    if (!compiled.length) { throw new Error("请至少显示一条曲线。"); }
+    var limits = config.bounds;
     var settings = options || {};
     var showTickLabels = settings.showTickLabels !== false;
     var showGrid = settings.showGrid !== false;
@@ -298,13 +290,16 @@
     var showLegend = settings.showLegend !== false;
     var width = Number(settings.width) || 720;
     var height = Number(settings.height) || 460;
+    if (!isFinite(width) || !isFinite(height) || width < 240 || width > 2400 || height < 200 || height > 2400) {
+      throw new Error("图像尺寸须在宽 240—2400、高 200—2400 范围内。");
+    }
     var margin = {
       left: showTickLabels ? 62 : 30,
       right: 24,
       top: 16,
       bottom: showTickLabels ? 48 : 24
     };
-    var legendItemWidth = 130;
+    var legendItemWidth = Math.max(130, Math.min(width - margin.left - margin.right, 260));
     var availableLegendWidth = width - margin.left - margin.right;
     var legendItemsPerRow = showLegend ?
       Math.max(1, Math.floor(availableLegendWidth / legendItemWidth)) :
@@ -313,6 +308,7 @@
     if (showLegend) {
       margin.top = 18 + legendRows * 20;
     }
+    height = Math.max(height, margin.top + margin.bottom + 120);
     var plotWidth = width - margin.left - margin.right;
     var plotHeight = height - margin.top - margin.bottom;
     var xScale = plotWidth / (limits.xMax - limits.xMin);
@@ -327,6 +323,24 @@
       return margin.top + (limits.yMax - y) * yScale;
     }
 
+    function curveStyle(formula) {
+      var lineStyle = settings.monochrome ?
+        configApi.LINE_STYLES[formula.index % configApi.LINE_STYLES.length] : formula.curve.lineStyle;
+      return 'stroke="' + (settings.monochrome ? "#111111" : formula.curve.color) + '"' +
+        (DASHES[lineStyle] ? ' stroke-dasharray="' + DASHES[lineStyle] + '"' : "");
+    }
+
+    function legendLabel(formula) {
+      var domain = formula.curve.domain;
+      var label = "y=" + formula.label;
+      if (domain.min !== null || domain.max !== null) {
+        label += "，x∈" + (domain.min !== null && domain.minClosed ? "[" : "(") +
+          (domain.min === null ? "−∞" : domain.min) + ", " +
+          (domain.max === null ? "+∞" : domain.max) + (domain.max !== null && domain.maxClosed ? "]" : ")");
+      }
+      return label;
+    }
+
     var body = [];
     body.push('<rect x="0" y="0" width="' + width + '" height="' + height + '" fill="#fff"/>');
     body.push('<defs><clipPath id="' + clipId + '"><rect x="' + margin.left + '" y="' + margin.top + '" width="' + plotWidth + '" height="' + plotHeight + '"/></clipPath></defs>');
@@ -338,7 +352,9 @@
     var firstY = Math.ceil(limits.yMin / yStep) * yStep;
     var value;
 
-    for (value = firstX; value <= limits.xMax + xStep * 0.01; value += xStep) {
+    for (var tick = 0; tick < 100; tick += 1) {
+      value = firstX + tick * xStep;
+      if (value > limits.xMax + xStep * 0.01) { break; }
       var xPosition = px(value);
       if (showGrid) {
         body.push('<line x1="' + xPosition + '" y1="' + margin.top + '" x2="' + xPosition + '" y2="' + (margin.top + plotHeight) + '" stroke="#e2e8f0" stroke-width="1"/>');
@@ -347,7 +363,9 @@
         body.push('<text x="' + xPosition + '" y="' + (height - 24) + '" text-anchor="middle" font-size="12" fill="#475569">' + formatNumber(value) + '</text>');
       }
     }
-    for (value = firstY; value <= limits.yMax + yStep * 0.01; value += yStep) {
+    for (tick = 0; tick < 100; tick += 1) {
+      value = firstY + tick * yStep;
+      if (value > limits.yMax + yStep * 0.01) { break; }
       var yPosition = py(value);
       if (showGrid) {
         body.push('<line x1="' + margin.left + '" y1="' + yPosition + '" x2="' + (margin.left + plotWidth) + '" y2="' + yPosition + '" stroke="#e2e8f0" stroke-width="1"/>');
@@ -365,39 +383,80 @@
     }
 
     body.push('<g clip-path="url(#' + clipId + ')">');
-    compiled.forEach(function (formula, formulaIndex) {
+    var endpoints = [];
+    compiled.forEach(function (formula) {
       var segments = [];
       var current = [];
-      var lastY = null;
+      var previous = null;
+      var domain = formula.curve.domain;
+      var startX = Math.max(limits.xMin, domain.min === null ? limits.xMin : domain.min);
+      var endX = Math.min(limits.xMax, domain.max === null ? limits.xMax : domain.max);
+      if (startX >= endX) { return; }
       var samples = Math.min(8000, Math.max(1000, Math.ceil(plotWidth * 2)));
-      for (var index = 0; index <= samples; index += 1) {
-        var x = limits.xMin + (limits.xMax - limits.xMin) * index / samples;
+      var evaluations = 0;
+      function sample(x) {
+        evaluations += 1;
+        if (evaluations > 50000) {
+          var complexityError = new Error("第 " + (formula.index + 1) + " 条函数：变化过于密集，请缩小坐标范围或简化表达式。");
+          complexityError.curveIndex = formula.index;
+          throw complexityError;
+        }
         var y;
-        try {
-          y = formula.evaluate(x);
-        } catch (_) {
-          y = NaN;
-        }
+        try { y = formula.evaluate(x); } catch (_) { y = NaN; }
         var screenY = py(y);
-        var valid = isFinite(y) && Math.abs(y) < 1e12 && screenY > margin.top - plotHeight * 4 && screenY < margin.top + plotHeight * 5;
-        var discontinuity = lastY !== null && Math.abs(screenY - lastY) > plotHeight * 1.5;
-        if (!valid || discontinuity) {
-          if (current.length > 1) {
-            segments.push(current.join(" "));
-          }
-          current = [];
-          lastY = null;
-          continue;
+        return { x: x, y: y, screenY: screenY, valid: isFinite(screenY) && Math.abs(y) < 1e12 &&
+          screenY > margin.top - plotHeight * 4 && screenY < margin.top + plotHeight * 5 };
+      }
+      function flush() {
+        if (current.length > 1) { segments.push(current.join(" ")); }
+        current = [];
+      }
+      // Subdivide curved intervals; break unresolved jumps instead of drawing across poles.
+      function appendInterval(left, right, depth) {
+        var middle = sample(left.x + (right.x - left.x) / 2);
+        var bend = Math.abs(middle.screenY - (left.screenY + right.screenY) / 2);
+        var jump = Math.abs(right.screenY - left.screenY);
+        var needsSplit = !left.valid || !right.valid || !middle.valid || bend > 0.7 || jump > plotHeight / 2;
+        if (needsSplit && depth < 8 && (left.valid || right.valid || middle.valid)) {
+          appendInterval(left, middle, depth + 1);
+          appendInterval(middle, right, depth + 1);
+          return;
         }
-        current.push((current.length ? "L" : "M") + px(x).toFixed(2) + " " + screenY.toFixed(2));
-        lastY = screenY;
+        if (!left.valid || !right.valid || !middle.valid || bend > 4 || jump > plotHeight / 2) {
+          flush();
+          return;
+        }
+        if (!current.length) { current.push("M" + px(left.x).toFixed(2) + " " + left.screenY.toFixed(2)); }
+        current.push("L" + px(right.x).toFixed(2) + " " + right.screenY.toFixed(2));
       }
-      if (current.length > 1) {
-        segments.push(current.join(" "));
+      for (var index = 0; index <= samples; index += 1) {
+        var next = sample(startX + (endX - startX) * index / samples);
+        if (previous) { appendInterval(previous, next, 0); }
+        previous = next;
       }
+      flush();
       segments.forEach(function (path) {
-        body.push('<path d="' + path + '" fill="none" stroke="' + COLORS[formulaIndex % COLORS.length] + '" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>');
+        body.push('<path data-curve="' + formula.index + '" d="' + path + '" fill="none" ' + curveStyle(formula) + ' stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>');
       });
+      ["min", "max"].forEach(function (side) {
+        var x = domain[side];
+        if (x === null || x < limits.xMin || x > limits.xMax) { return; }
+        var point = sample(x);
+        if (!point.valid || point.y < limits.yMin || point.y > limits.yMax) { return; }
+        endpoints.push({ x: x, y: point.y, closed: domain[side + "Closed"], color: settings.monochrome ? "#111111" : formula.curve.color });
+      });
+    });
+    endpoints.sort(function (a, b) { return Number(a.closed) - Number(b.closed); }).forEach(function (point) {
+      body.push('<circle data-endpoint="' + (point.closed ? "closed" : "open") + '" cx="' + px(point.x) + '" cy="' + py(point.y) +
+        '" r="4" fill="' + (point.closed ? point.color : "#ffffff") + '" stroke="' + point.color + '" stroke-width="1.8"/>');
+    });
+    (config.points || []).forEach(function (point) {
+      if (point.x < limits.xMin || point.x > limits.xMax || point.y < limits.yMin || point.y > limits.yMax) { return; }
+      var anchor = point.x > (limits.xMin + limits.xMax) / 2 ? "end" : "start";
+      var offset = anchor === "end" ? -8 : 8;
+      body.push('<circle data-point="true" cx="' + px(point.x) + '" cy="' + py(point.y) + '" r="3.5" fill="#111111"/>');
+      body.push('<text x="' + (px(point.x) + offset) + '" y="' + Math.max(margin.top + 14, py(point.y) - 8) +
+        '" text-anchor="' + anchor + '" font-size="13" fill="#111111">' + escapeXml(point.label || ("(" + point.x + ", " + point.y + ")")) + '</text>');
     });
     body.push("</g>");
 
@@ -407,19 +466,31 @@
         var legendRow = Math.floor(index / legendItemsPerRow);
         var legendX = margin.left + legendColumn * legendItemWidth;
         var legendY = 18 + legendRow * 20;
-        body.push('<line x1="' + legendX + '" y1="' + legendY + '" x2="' + (legendX + 20) + '" y2="' + legendY + '" stroke="' + COLORS[index % COLORS.length] + '" stroke-width="3"/>');
-        body.push('<text x="' + (legendX + 26) + '" y="' + (legendY + 4) + '" font-size="13" fill="#1e293b">y=' + escapeXml(formula.label) + '</text>');
+        var fullLabel = legendLabel(formula);
+        var maxCharacters = Math.max(10, Math.floor((legendItemWidth - 38) / 7));
+        var label = fullLabel.length > maxCharacters ? fullLabel.substring(0, maxCharacters - 1) + "…" : fullLabel;
+        body.push('<line x1="' + legendX + '" y1="' + legendY + '" x2="' + (legendX + 20) + '" y2="' + legendY + '" ' + curveStyle(formula) + ' stroke-width="2.2"/>');
+        body.push('<text x="' + (legendX + 26) + '" y="' + (legendY + 4) + '" font-size="13" fill="#1e293b"><title>' + escapeXml(fullLabel) + '</title>' + escapeXml(label) + '</text>');
       });
     }
-    body.push('<text x="' + (margin.left + plotWidth + 8) + '" y="' + (py(0) - 6) + '" font-size="14" fill="#334155">x</text>');
-    body.push('<text x="' + (px(0) + 7) + '" y="' + (margin.top + 14) + '" font-size="14" fill="#334155">y</text>');
+    if (limits.yMin <= 0 && limits.yMax >= 0) {
+      body.push('<text x="' + (margin.left + plotWidth + 8) + '" y="' + Math.max(margin.top + 14, py(0) - 6) + '" font-size="14" fill="#334155">x</text>');
+    }
+    if (limits.xMin <= 0 && limits.xMax >= 0) {
+      body.push('<text x="' + Math.min(margin.left + plotWidth - 10, px(0) + 7) + '" y="' + (margin.top + 14) + '" font-size="14" fill="#334155">y</text>');
+    }
+    var svgBody = body.join("");
+    if (settings.monochrome) {
+      svgBody = svgBody.replace(/#e2e8f0/g, "#dddddd").replace(/#94a3b8/g, "#999999")
+        .replace(/#475569|#334155|#1e293b/g, "#333333");
+    }
 
     return {
       width: width,
       height: height,
       expressions: formulas,
       bounds: limits,
-      svg: '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + " " + height + '" role="img" aria-label="函数图像">' + body.join("") + "</svg>"
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + " " + height + '" role="img" aria-label="函数图像">' + svgBody + "</svg>"
     };
   }
 

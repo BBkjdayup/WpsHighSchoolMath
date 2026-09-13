@@ -85,7 +85,7 @@ body {
 }
 
 .function-shell .expression-heading,
-.function-shell .expression-row,
+.function-shell .expression-main,
 .function-shell .preview-heading {
   display: flex;
   align-items: center;
@@ -131,11 +131,15 @@ body {
 }
 
 .function-shell input,
+.function-shell select,
+.function-shell textarea,
 .function-shell button {
   font: inherit;
 }
 
-.function-shell input {
+.function-shell input,
+.function-shell select,
+.function-shell textarea {
   width: 100%;
   margin-top: 4px;
   padding: 7px 8px;
@@ -143,6 +147,83 @@ body {
   border-radius: 6px;
   color: #172033;
   background: #fff;
+}
+
+.function-shell .expression-row {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #d6dce7;
+  border-radius: 7px;
+}
+
+.function-shell .expression-row.invalid {
+  border-color: #b91c1c;
+  background: #fff7f7;
+}
+
+.function-shell .curve-settings {
+  margin-top: 7px;
+}
+
+.function-shell .curve-settings summary {
+  color: #475569;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.function-shell .curve-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.function-shell .curve-grid label {
+  min-width: 0;
+}
+
+.function-shell .curve-color {
+  height: 33px;
+  padding: 3px;
+}
+
+.function-shell .curve-visible-label {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 5px;
+}
+
+.function-shell .curve-visible {
+  width: auto;
+  margin: 0;
+}
+
+.function-shell .field-help {
+  margin-top: 7px;
+  color: #526075;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.function-shell textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+
+.function-shell select {
+  min-height: 33px;
+}
+
+.function-shell select:focus-visible,
+.function-shell textarea:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.function-shell button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .function-shell .expression-input {
@@ -323,7 +404,7 @@ body {
 
 @media (min-width: 540px) {
   .function-shell .presets {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .function-shell .display-options {

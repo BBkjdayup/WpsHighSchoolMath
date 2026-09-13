@@ -61,6 +61,9 @@
       panelList[index].className = panelSelected ? "tool-view active" : "tool-view";
     }
     activeView = normalized;
+    if (root.MathFunctionPlotPanel && typeof root.MathFunctionPlotPanel.setVisible === "function") {
+      root.MathFunctionPlotPanel.setVisible(normalized === "function-plot");
+    }
     if (normalized === "license" && root.MathLicensePanel &&
         typeof root.MathLicensePanel.refresh === "function") {
       root.MathLicensePanel.refresh();

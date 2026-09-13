@@ -185,7 +185,8 @@
     }
     var range = selection.Range;
     if (range && range.Start !== range.End) {
-      range.Text = "";
+      if (typeof doc.Range !== "function") { throw new Error("请将光标放到空白位置后插入新图。"); }
+      range = doc.Range(Number(range.Start), Number(range.Start));
     }
     var shape = doc.InlineShapes.AddPicture(path, false, true, range);
     try { shape.AlternativeText = "函数图像：" + plot.expressions.join("；"); } catch (_) {}
@@ -269,6 +270,9 @@
            existingConfig = root.MathFunctionDocument.getSelectedPlotConfig(app);
          }
        } catch (_) {}
+       if (existingConfig && (existingConfig.curves || existingConfig.points || existingConfig.options.monochrome)) {
+         throw new Error("所选图像含新版绘图设置，请使用完整函数编辑器修改。旧图已保留。");
+       }
        if (forceQuick) {
          input = collectQuickPlotInput(app);
        } else {

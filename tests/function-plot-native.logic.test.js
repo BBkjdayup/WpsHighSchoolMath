@@ -4,6 +4,7 @@ const path = require("path");
 const vm = require("vm");
 
 const projectRoot = path.join(__dirname, "..");
+const configSource = fs.readFileSync(path.join(projectRoot, "js", "plot-config.js"), "utf8");
 const plotterSource = fs.readFileSync(path.join(projectRoot, "js", "plotter.js"), "utf8");
 const nativeSource = fs.readFileSync(path.join(projectRoot, "js", "function-plot-native.js"), "utf8");
 
@@ -24,6 +25,7 @@ function createContext(app, answers) {
     console
   };
   vm.createContext(context);
+  vm.runInContext(configSource, context);
   vm.runInContext(plotterSource, context);
   vm.runInContext(nativeSource, context);
   return { context, alerts };
@@ -173,6 +175,15 @@ function createContext(app, answers) {
   assert(pptLoader.indexOf("plotter.js") < pptLoader.indexOf("function-plot-native.js"));
   assert(pptLoader.indexOf("function-plot-document.js") < pptLoader.indexOf("function-plot-native.js"));
   assert(pptLoader.indexOf("function-plot-native.js") < pptLoader.indexOf("ribbon-ppt.js"));
+}
+
+{
+  const { context, alerts } = createContext({}, []);
+  context.window.MathFunctionDocument = {
+    getSelectedPlotConfig() { return { curves: [{}], options: {} }; }
+  };
+  assert.equal(context.MathFunctionPlot.openQuickWriter({}), false);
+  assert(alerts.some(message => message.includes("旧图已保留")));
 }
 
 console.log("native function plot tests passed");

@@ -3,14 +3,16 @@
 ## 1. 当前快照
 
 - 项目名称：`WpsHighSchoolMath`
-- 当前版本：`0.5.3`
+- 当前版本：`0.6.0`
 - 支持宿主：WPS Writer、WPS Presentation
-- 已验证环境：Windows 11、Windows PowerShell 5.1、Node.js `24.14.1`、WPS Office `12.1.0.26895`
+- 历史实机基线：Windows 11、Windows PowerShell 5.1、Node.js `24.14.1`、WPS Office `12.1.0.26895`。0.6.0 本轮的自动化和浏览器验证见 `specs/refactor-upgrade-2026-09/implementation.md`；新版尚需 Writer/PPT 实机验收。
 - 当前发布状态：内部测试包，`Internal / internal-test / pending-certificate`
 - 商业发布状态：尚未取得并使用可信 Authenticode 代码签名证书，当前安装包不能作为已签名商业包宣传
 - 在线更新状态：尚未实现；当前仍通过完整离线安装包升级
 
 插件不依赖业务服务器、数据库、账号系统或本地 HTTP 服务。授权、机器码、试用状态都保存在客户电脑本地。
+
+0.6.0 重点升级函数绘图：独立定义域与开闭端点、颜色/线型、黑白打印、坐标点标注、V1/V2 配置兼容和安全图片替换。代码基线已建立在 `master` 的首个提交，本轮改动位于 `codex/function-plot-upgrade`。
 
 ## 2. 接手后先运行
 
@@ -145,7 +147,7 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\valida
 
 ## 9. Git 状态说明
 
-原工作目录的 Git 仓库没有任何历史提交，并包含大量临时对象，不适合作为可信开发历史移交。桌面交接包会从当前文件快照创建一个新的 `main` 分支和基线提交；该提交只代表交接时快照，不代表项目此前的真实开发历史。
+2026-09-13 已为原工作目录创建首个 0.5.3 源码基线提交，并从该提交建立 `codex/function-plot-upgrade` 分支。基线仅代表当日文件快照，不代表此前的真实开发历史；本地备份位于 `.tmp/baseline-0.5.3-before-plot-upgrade.zip`。历史临时对象未清理。
 
 ## 10. 接手验收清单
 

@@ -208,7 +208,7 @@ foreach ($file in $rootFiles) {
 }
 Copy-Item -LiteralPath (Join-Path $projectRoot "ui") -Destination $payloadPath -Recurse -Force
 New-Item -ItemType Directory -Path (Join-Path $payloadPath "js") -Force | Out-Null
-foreach ($file in @("symbols.js", "taskpane.js", "license-public-key.js", "license.js", "ribbon.js", "plotter.js", "function-plot-document.js", "function-plot-native.js")) {
+foreach ($file in @("symbols.js", "taskpane.js", "license-public-key.js", "license.js", "ribbon.js", "plot-config.js", "plotter.js", "function-plot-document.js", "function-plot-native.js")) {
     Copy-Item -LiteralPath (Join-Path $projectRoot "js\$file") -Destination (Join-Path $payloadPath "js") -Force
 }
 Copy-Item -LiteralPath (Join-Path $projectRoot "js\vendor") -Destination (Join-Path $payloadPath "js") -Recurse -Force
@@ -222,7 +222,7 @@ foreach ($file in @("index.html", "main.js", "manifest.xml", "ribbon.xml")) {
     Copy-Item -LiteralPath (Join-Path $projectRoot "ppt\$file") -Destination $pptPayloadPath -Force
 }
 New-Item -ItemType Directory -Path (Join-Path $pptPayloadPath "js") -Force | Out-Null
-foreach ($file in @("symbols.js", "ppt-api.js", "taskpane.js", "license-public-key.js", "license.js", "ribbon-ppt.js", "plotter.js", "function-plot-document.js", "function-plot-native.js")) {
+foreach ($file in @("symbols.js", "ppt-api.js", "taskpane.js", "license-public-key.js", "license.js", "ribbon-ppt.js", "plot-config.js", "plotter.js", "function-plot-document.js", "function-plot-native.js")) {
     Copy-Item -LiteralPath (Join-Path $projectRoot "js\$file") -Destination (Join-Path $pptPayloadPath "js") -Force
 }
 Copy-Item -LiteralPath (Join-Path $projectRoot "js\vendor") -Destination (Join-Path $pptPayloadPath "js") -Recurse -Force

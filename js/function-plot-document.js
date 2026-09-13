@@ -1,5 +1,6 @@
 (function (root, factory) {
-  var api = factory(root);
+  var configApi = typeof module === "object" && module.exports ? require("./plot-config.js") : root.MathPlotConfig;
+  var api = factory(root, configApi);
   root.MathFunctionDocument = api;
   if (typeof globalThis !== "undefined") {
     globalThis.MathFunctionDocument = api;
@@ -7,56 +8,17 @@
   if (typeof module === "object" && module.exports) {
     module.exports = api;
   }
-})(typeof window !== "undefined" ? window : globalThis, function (root) {
+})(typeof window !== "undefined" ? window : globalThis, function (root, configApi) {
   var METADATA_PREFIX = "HSM_FUNCTION_PLOT_V1:";
-  var DEFAULT_CONFIG = {
-    expressions: ["x^2"],
-    bounds: { xMin: -10, xMax: 10, yMin: -10, yMax: 10 },
-    options: { showTickLabels: true, showGrid: true, showBorder: true, showLegend: true }
-  };
+  var METADATA_PREFIX_V2 = "HSM_FUNCTION_PLOT_V2:";
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
   }
 
-  function finite(value) {
-    var number = Number(value);
-    return isFinite(number) ? number : null;
-  }
-
   function normalizeConfig(input) {
-    var source = input || {};
-    var expressions = Array.isArray(source.expressions) ? source.expressions : [];
-    expressions = expressions.map(function (value) {
-      return String(value === undefined || value === null ? "" : value).trim();
-    }).filter(function (value) { return value.length > 0; }).slice(0, 12);
-    if (!expressions.length) {
-      throw new Error("请至少输入一个函数表达式。");
-    }
-
-    var bounds = source.bounds || {};
-    var xMin = finite(bounds.xMin);
-    var xMax = finite(bounds.xMax);
-    var yMin = finite(bounds.yMin);
-    var yMax = finite(bounds.yMax);
-    if (xMin === null || xMax === null || xMin >= xMax) {
-      throw new Error("横坐标范围无效。");
-    }
-    if (yMin === null || yMax === null || yMin >= yMax) {
-      throw new Error("纵坐标范围无效。");
-    }
-
-    var options = source.options || {};
-    return {
-      expressions: expressions,
-      bounds: { xMin: xMin, xMax: xMax, yMin: yMin, yMax: yMax },
-      options: {
-        showTickLabels: options.showTickLabels !== false,
-        showGrid: options.showGrid !== false,
-        showBorder: options.showBorder !== false,
-        showLegend: options.showLegend !== false
-      }
-    };
+    if (!configApi) { throw new Error("绘图配置组件未加载，请重新打开插件。"); }
+    return configApi.normalizeConfig(input);
   }
 
   function humanLabel(config) {
@@ -65,16 +27,18 @@
 
   function serializeMetadata(input) {
     var config = normalizeConfig(input);
-    return humanLabel(config) + "\n" + METADATA_PREFIX + encodeURIComponent(JSON.stringify(config));
+    var prefix = config.curves || config.points || config.options.monochrome ? METADATA_PREFIX_V2 : METADATA_PREFIX;
+    return humanLabel(config) + "\n" + prefix + encodeURIComponent(JSON.stringify(config));
   }
 
   function parseMetadata(value) {
     var text = String(value || "");
-    var prefixIndex = text.indexOf(METADATA_PREFIX);
+    var prefix = text.indexOf(METADATA_PREFIX_V2) >= 0 ? METADATA_PREFIX_V2 : METADATA_PREFIX;
+    var prefixIndex = text.indexOf(prefix);
     if (prefixIndex < 0) {
       return null;
     }
-    var encoded = text.substring(prefixIndex + METADATA_PREFIX.length).split(/[\r\n]/)[0].trim();
+    var encoded = text.substring(prefixIndex + prefix.length).split(/[\r\n]/)[0].trim();
     if (!encoded) {
       return null;
     }
@@ -95,7 +59,14 @@
 
   function applyMetadata(shape, input) {
     var config = normalizeConfig(input);
-    try { shape.AlternativeText = serializeMetadata(config); } catch (_) {}
+    try {
+      shape.AlternativeText = serializeMetadata(config);
+      if (JSON.stringify(parseMetadata(shape.AlternativeText)) !== JSON.stringify(config)) {
+        throw new Error("图像参数写入后不完整");
+      }
+    } catch (_) {
+      throw new Error("无法保存函数图像的编辑参数，已取消替换。");
+    }
     try { shape.Title = config.expressions.join("；"); } catch (_) {}
     return config;
   }
@@ -114,10 +85,10 @@
     try { if (selection.Range && selection.Range.InlineShapes) { collections.push(selection.Range.InlineShapes); } } catch (_) {}
     for (var collectionIndex = 0; collectionIndex < collections.length; collectionIndex += 1) {
       try {
-        if (Number(collections[collectionIndex].Count) > 0) {
+        if (Number(collections[collectionIndex].Count) === 1) {
           var selected = collections[collectionIndex].Item(1);
           var selectedConfig = shapeMetadata(selected);
-          if (selectedConfig) {
+          if (selectedConfig && exactWriterSelection(selection, selected)) {
             return { host: "writer", shape: selected, config: selectedConfig };
           }
         }
@@ -139,7 +110,7 @@
         var shape = doc.InlineShapes.Item(index);
         var shapeStart = Number(shape.Range.Start);
         var shapeEnd = Number(shape.Range.End);
-        var touchesSelection = start === shapeStart || (end !== null && start <= shapeEnd && end >= shapeStart);
+        var touchesSelection = start === shapeStart && (start === end || end === shapeEnd);
         if (touchesSelection) {
           var config = shapeMetadata(shape);
           if (config) {
@@ -149,6 +120,14 @@
       }
     } catch (_) {}
     return null;
+  }
+
+  function exactWriterSelection(selection, shape) {
+    try {
+      var range = selection.Range;
+      return Number(range.Start) === Number(shape.Range.Start) &&
+        (Number(range.Start) === Number(range.End) || Number(range.End) === Number(shape.Range.End));
+    } catch (_) { return false; }
   }
 
   function selectedPresentationShape(app) {
@@ -203,17 +182,17 @@
     var update = Boolean(selected);
     var preserved = selected ? shapeGeometry(selected.shape) : {};
     var insertionRange = selection.Range;
-
-    if (selected) {
-      var start = rangeStart(selected.shape, Number(selection.Range.Start) || 0);
-      try { selected.shape.Delete(); } catch (error) { throw new Error("无法替换所选函数图像：" + error.message); }
+    var start = selected ? rangeStart(selected.shape, NaN) : Number(insertionRange.Start);
+    if (!isFinite(start)) { throw new Error("无法确定插入位置，请重新选择光标位置。"); }
+    // A collapsed range inserts beside the old content without deleting it.
+    if (typeof doc.Range === "function") {
       insertionRange = doc.Range(start, start);
-    } else if (insertionRange && insertionRange.Start !== insertionRange.End) {
-      insertionRange.Text = "";
+    } else if (selected || Number(insertionRange.Start) !== Number(insertionRange.End)) {
+      throw new Error("当前 WPS 无法安全替换选区，请将光标放到空白位置后插入新图。");
     }
 
     var shape = doc.InlineShapes.AddPicture(path, false, true, insertionRange);
-    applyMetadata(shape, config);
+    finishReplacement(shape, selected && selected.shape, config);
     try {
       shape.LockAspectRatio = -1;
       shape.Width = preserved.width || 420;
@@ -230,6 +209,29 @@
       shape: shape,
       message: update ? "所选函数图像已更新。" : "函数图像已插入到 WPS 文字。"
     };
+  }
+
+  function finishReplacement(shape, previous, config) {
+    if (!shape) { throw new Error("WPS 未返回新图像，原内容已保留。"); }
+    try {
+      applyMetadata(shape, config);
+    } catch (error) {
+      try {
+        shape.Delete();
+      } catch (_) {
+        throw new Error(error.message + " 原图未主动移除；临时新图清理失败，请检查并手动删除多余图像。");
+      }
+      throw error;
+    }
+    if (previous) {
+      try {
+        previous.Delete();
+      } catch (_) {
+        // Delete may throw after a partial host operation. Retain the verified new
+        // picture so cleanup cannot remove the only remaining copy.
+        throw new Error("新图已插入，但旧图移除结果无法确认。已保留新图，请检查并手动删除多余图像。");
+      }
+    }
   }
 
   function activePresentation(app) {
@@ -300,9 +302,6 @@
     var selected = selectedPresentationShape(app);
     var update = Boolean(selected);
     var geometry = selected ? shapeGeometry(selected.shape) : newPresentationGeometry(slide, presentation, plot);
-    if (selected) {
-      try { selected.shape.Delete(); } catch (error) { throw new Error("无法替换所选函数图像：" + error.message); }
-    }
     var shape = slide.Shapes.AddPicture(
       path,
       false,
@@ -312,7 +311,7 @@
       geometry.width,
       geometry.height
     );
-    applyMetadata(shape, config);
+    finishReplacement(shape, selected && selected.shape, config);
     try { shape.Name = "高中数学函数图像"; } catch (_) {}
     try { shape.Select(); } catch (_) {}
     return {
@@ -326,11 +325,9 @@
 
   function insertOrUpdate(app, path, plot, input) {
     var config = normalizeConfig(input);
-    try {
-      if (app && app.ActiveDocument) {
-        return insertIntoWriter(app, path, plot, config);
-      }
-    } catch (_) {}
+    var writerDocument = null;
+    try { writerDocument = app && app.ActiveDocument; } catch (_) {}
+    if (writerDocument) { return insertIntoWriter(app, path, plot, config); }
     if (activePresentation(app)) {
       return insertIntoPresentation(app, path, plot, config);
     }
@@ -339,7 +336,8 @@
 
   return {
     METADATA_PREFIX: METADATA_PREFIX,
-    getDefaultConfig: function () { return clone(DEFAULT_CONFIG); },
+    METADATA_PREFIX_V2: METADATA_PREFIX_V2,
+    getDefaultConfig: function () { return configApi.getDefaultConfig(); },
     normalizeConfig: normalizeConfig,
     serializeMetadata: serializeMetadata,
     parseMetadata: parseMetadata,

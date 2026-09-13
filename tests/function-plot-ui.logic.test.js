@@ -13,6 +13,7 @@ const nodes = {
 let selectedPlot = { host: "presentation", config: { expressions: ["x^2"] } };
 let intervalCallback = null;
 let intervalDelay = null;
+let stopped = null;
 
 const document = {
   getElementById(id) {
@@ -36,7 +37,8 @@ const window = {
     intervalCallback = callback;
     intervalDelay = delay;
     return 17;
-  }
+  },
+  clearInterval(id) { stopped = id; }
 };
 
 vm.runInNewContext(panelSource, {
@@ -70,5 +72,10 @@ selectedPlot = { host: "writer", config: { expressions: ["sin(x)"] } };
 intervalCallback();
 assert.equal(window.MathFunctionPlotPanel.isEditingSelectedPlot(), true);
 assert.equal(nodes.insertButton.textContent, "更新所选图像");
+
+window.MathFunctionPlotPanel.setVisible(false);
+assert.equal(stopped, 17);
+window.MathFunctionPlotPanel.setVisible(true);
+assert.equal(window.MathFunctionPlotPanel.isEditingSelectedPlot(), true);
 
 console.log("function plot selection-mode synchronization tests passed");
