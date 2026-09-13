@@ -1,0 +1,49 @@
+# WPS High School Math Add-in
+
+## Architecture
+
+- The project ships two WPS JS add-ins from one source tree:
+  - Writer add-in: root `index.html`, `ribbon.xml`, `js/ribbon.js`
+  - Presentation add-in: `ppt/index.html`, `ppt/ribbon.xml`, `js/ribbon-ppt.js`
+- Shared symbol definitions live in `js/symbols.js`; do not duplicate the `SYMBOLS` map in host-specific ribbon files.
+- Shared Presentation helpers live in `js/ppt-api.js`; use `WpsPptApi.getActivePresentation()` and `WpsPptApi.getActiveSlide()` instead of direct global `ActivePresentation` lookups.
+- Shared task-pane cache invalidation and readiness checks live in `js/taskpane.js`; task-pane pages must call `MathTaskPanes.signalReady()` after successful initialization.
+- Function graph rendering is host-independent in `js/plotter.js`. Offline `file://` installs use `js/function-plot-native.js`; HTTP(S) debug pages keep the richer UI in `ui/function-plot.js`.
+- Offline licensing uses Ed25519 signatures. `scripts/license-issuer.js` and `scripts/license-code.js` are issuer-side Node.js code; the add-ins load `js/vendor/tweetnacl-fast.min.js`, `js/license-public-key.js`, and then `js/license.js` to verify HSM2 codes. Never add private-key material or activation-code generation to a plugin payload.
+- `scripts/license-keygen.js` initializes the issuer private key under `%APPDATA%\WpsHighSchoolMathIssuer` and writes the matching public-key module. Existing private keys must not be replaced after licenses have been issued.
+- The issuer-only GUI is `scripts/license-tool.ps1`; `scripts/license-tool-cli.js` performs signing, public-key matching, and CSV history writes. `scripts/build-license-tool.ps1` packages the GUI with the pinned Node runtime, but must never package the private key or `license-keygen.js`.
+- Per-user commercial uninstall registration is shared through `scripts/uninstall-registration.ps1`. Installation must register the product under HKCU Installed Apps and create the Start-menu shortcut; normal uninstall removes only product-owned WPS payloads/registrations while preserving `%APPDATA%\WpsHighSchoolMath` licensing state.
+- The offline installer is built by `scripts/build-offline.ps1` and installs both plugin payloads into `%APPDATA%\kingsoft\wps\jsaddons`.
+
+## Validation
+
+Run these checks after changing ribbon, plotter, UI, or packaging code:
+
+```powershell
+node --check js\symbols.js
+node --check js\ppt-api.js
+node --check js\taskpane.js
+node --check js\vendor\tweetnacl-fast.min.js
+node --check js\license-public-key.js
+node --check js\license.js
+node --check scripts\license-issuer.js
+node --check scripts\license-keygen.js
+node --check scripts\license-code.js
+node --check scripts\license-tool-cli.js
+node tests\license-tool.logic.test.js
+node --check js\ribbon.js
+node --check js\ribbon-ppt.js
+node --check js\plotter.js
+node --check js\function-plot-native.js
+node --check ui\function-plot.js
+node --check ui\license-ui.js
+node tests\taskpane.logic.test.js
+node tests\license.logic.test.js
+node tests\function-plot-native.logic.test.js
+node tests\ribbon.logic.test.js
+node tests\ppt.logic.test.js
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\uninstall-registration.test.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\offline-uninstall.test.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-offline.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-license-tool.ps1
+```
