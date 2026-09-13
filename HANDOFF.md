@@ -3,16 +3,16 @@
 ## 1. 当前快照
 
 - 项目名称：`WpsHighSchoolMath`
-- 当前版本：`0.6.0`
+- 当前版本：`0.7.0`
 - 支持宿主：WPS Writer、WPS Presentation
-- 历史实机基线：Windows 11、Windows PowerShell 5.1、Node.js `24.14.1`、WPS Office `12.1.0.26895`。0.6.0 本轮的自动化和浏览器验证见 `specs/refactor-upgrade-2026-09/implementation.md`；新版尚需 Writer/PPT 实机验收。
+- 历史实机基线：Windows 11、Windows PowerShell 5.1、Node.js `24.14.1`、WPS Office `12.1.0.26895`。0.7.0 的自动化和浏览器验证见 `specs/refactor-upgrade-2026-09/implementation-0.7.md`；新版尚需 Writer/PPT 实机验收。
 - 当前发布状态：内部测试包，`Internal / internal-test / pending-certificate`
 - 商业发布状态：尚未取得并使用可信 Authenticode 代码签名证书，当前安装包不能作为已签名商业包宣传
 - 在线更新状态：尚未实现；当前仍通过完整离线安装包升级
 
 插件不依赖业务服务器、数据库、账号系统或本地 HTTP 服务。授权、机器码、试用状态都保存在客户电脑本地。
 
-0.6.0 重点升级函数绘图：独立定义域与开闭端点、颜色/线型、黑白打印、坐标点标注、V1/V2 配置兼容和安全图片替换。代码基线已建立在 `master` 的首个提交，本轮改动位于 `codex/function-plot-upgrade`。
+0.7.0 在分段函数、样式、黑白打印与安全替换基础上，新增 a/b/c 参数滑块、横竖辅助线、V3 图像参数及本机绘图收藏。收藏使用独立存储键，支持备份迁移、合并导入和恢复上次列表。代码基线已建立在 `master` 的首个提交，本轮改动位于 `codex/function-plot-0.7`。
 
 ## 2. 接手后先运行
 

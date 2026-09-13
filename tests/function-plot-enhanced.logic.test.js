@@ -150,4 +150,21 @@ for (const failure of ["insert", "metadata"]) {
   assert(!removed, "PPT insertion failure preserves old picture");
 }
 
+{
+  const v3 = { ...config, parameters: configApi.normalizeParameters({}), guides: [{ axis: "x", expression: "a" }] };
+  for (const failure of [undefined, "insert", "metadata"]) {
+    const fixture = writerFixture(failure);
+    fixture.previous.AlternativeText = documents.serializeMetadata(v3);
+    assert.deepEqual(documents.getSelectedPlot(fixture.app).config, configApi.normalizeConfig(v3));
+    if (failure) {
+      assert.throws(() => documents.insertOrUpdate(fixture.app, "plot.svg", plot, v3));
+      assert(!fixture.previous.deleted);
+    } else {
+      const result = documents.insertOrUpdate(fixture.app, "plot.svg", plot, v3);
+      assert(result.updated);
+      assert.deepEqual(documents.parseMetadata(result.shape.AlternativeText), configApi.normalizeConfig(v3));
+    }
+  }
+}
+
 console.log("enhanced plotting: domains, styles, points, discontinuities, metadata and safe replacement passed");

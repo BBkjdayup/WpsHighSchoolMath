@@ -80,7 +80,44 @@
     });
   }
 
-  // Keep legacy configs minimal; optional V2 fields are added only when supplied.
+  function normalizeParameters(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) { throw new Error("参数设置无效。"); }
+    if (Object.keys(input).some(function (name) { return ["a", "b", "c"].indexOf(name) < 0; })) {
+      throw new Error("只支持 a、b、c 三个参数。");
+    }
+    var result = {};
+    ["a", "b", "c"].forEach(function (name) {
+      var source = input[name] === undefined ? { value: name === "a" ? 1 : 0, min: -5, max: 5, step: 0.1 } : input[name];
+      if (!source || typeof source !== "object" || Array.isArray(source)) { throw new Error("参数 " + name + " 设置无效。"); }
+      var parameter = {};
+      ["value", "min", "max", "step"].forEach(function (key) {
+        if (typeof source[key] !== "string" && typeof source[key] !== "number") { throw new Error("参数 " + name + " 请输入完整数值。"); }
+        parameter[key] = number(source[key], "参数 " + name);
+      });
+      var span = parameter.max - parameter.min;
+      if (span < 1e-8) { throw new Error("参数 " + name + " 的最大值须大于最小值，间距至少为 0.00000001。"); }
+      if (parameter.step <= 0 || parameter.step > span || span / parameter.step > 1000000) {
+        throw new Error("参数 " + name + " 的步长须大于 0、不超过范围，且滑动不超过一百万步。");
+      }
+      if (parameter.value < parameter.min || parameter.value > parameter.max) {
+        throw new Error("参数 " + name + " 的当前值须在滑块范围内。");
+      }
+      result[name] = parameter;
+    });
+    return result;
+  }
+
+  function normalizeGuides(input) {
+    if (!Array.isArray(input) || input.length > 20) { throw new Error("辅助线最多支持 20 条。"); }
+    return input.map(function (guide, index) {
+      if (!guide || ["x", "y"].indexOf(guide.axis) < 0) { throw new Error("第 " + (index + 1) + " 条辅助线须为 x= 或 y=。"); }
+      var expression = String(guide.expression === undefined ? "" : guide.expression).trim();
+      if (!expression || expression.length > 100) { throw new Error("辅助线等号后请输入 1—100 个字符的数值或参数表达式。"); }
+      return { axis: guide.axis, expression: expression };
+    });
+  }
+
+  // Keep legacy configs minimal; optional fields are added only when supplied.
   function normalizeConfig(input) {
     var source = input || {};
     if (!Array.isArray(source.expressions)) { throw new Error("请至少输入一个函数表达式。"); }
@@ -118,6 +155,8 @@
     if (source.curves !== undefined) { result.curves = curves; }
     if (source.points !== undefined) { result.points = normalizePoints(source.points); }
     if (options.monochrome !== undefined) { result.options.monochrome = options.monochrome === true; }
+    if (source.parameters !== undefined) { result.parameters = normalizeParameters(source.parameters); }
+    if (source.guides !== undefined) { result.guides = normalizeGuides(source.guides); }
     return result;
   }
 
@@ -127,6 +166,7 @@
     LINE_STYLES: LINE_STYLES.slice(),
     normalizeCurve: normalizeCurve,
     normalizeBounds: normalizeBounds,
+    normalizeParameters: normalizeParameters,
     normalizeConfig: normalizeConfig,
     getDefaultConfig: function () { return clone(DEFAULT_CONFIG); }
   };

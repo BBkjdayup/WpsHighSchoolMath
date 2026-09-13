@@ -116,7 +116,11 @@ function makeSlide(existingShapes) {
     Delete() { this.deleted = true; }
   });
   selection.ShapeRange = { Count: 1, Item() { return oldShape; } };
-  const updatedConfig = Object.assign({}, config, { expressions: ["abs(x)"] });
+  const updatedConfig = Object.assign({}, config, {
+    expressions: ["a*abs(x)+c"],
+    parameters: require("../js/plot-config.js").normalizeParameters({}),
+    guides: [{ axis: "y", expression: "c" }]
+  });
   const updated = functionDocument.insertOrUpdate(app, "C:\\Temp\\plot-2.svg", plot, updatedConfig);
   assert.equal(updated.updated, true);
   assert.equal(oldShape.deleted, true);

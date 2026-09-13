@@ -402,6 +402,53 @@ body {
   background: linear-gradient(to bottom, rgba(243, 246, 250, 0), #f3f6fa 35%);
 }
 
+.function-shell .parameter-row + .parameter-row {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.function-shell .parameter-main {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 72px;
+  gap: 8px;
+  align-items: center;
+}
+
+.function-shell .parameter-main input {
+  min-width: 0;
+  margin: 0;
+}
+
+.function-shell input[type="range"] {
+  padding: 0;
+  accent-color: #2563eb;
+}
+
+.function-shell .parameter-settings {
+  margin-top: 10px;
+}
+
+@media (min-width: 360px) {
+  .function-shell .presets {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
+.function-shell .parameter-limits,
+.function-shell .library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.function-shell .parameter-limits label,
+.function-shell .library-actions button {
+  flex: 1 1 60px;
+  min-width: 0;
+}
+
 @media (min-width: 540px) {
   .function-shell .presets {
     grid-template-columns: repeat(4, minmax(0, 1fr));

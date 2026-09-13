@@ -4,6 +4,7 @@ var editingSelectedPlot = false;
 var renderedEditingMode = null;
 var selectionMonitorId = null;
 var previewTimer = null;
+var plotLibrary = null;
 
 var PRESETS = {
   quadratic: { expression: "x^2" },
@@ -12,7 +13,8 @@ var PRESETS = {
   sine: { expression: "sin(x)" },
   cosine: { expression: "cos(x)" },
   exponential: { expression: "2^x" },
-  logarithm: { expression: "log(x)" }
+  logarithm: { expression: "log(x)" },
+  parameters: { expression: "ax^2+bx+c" }
 };
 
 function node(id) {
@@ -173,6 +175,172 @@ function readDomainValue(row, selector) {
   return control.value;
 }
 
+function readParameters() {
+  var result = {};
+  ["a", "b", "c"].forEach(function (name) {
+    var parameter = {};
+    ["value", "min", "max", "step"].forEach(function (key) {
+      parameter[key] = node("parameter-" + name + "-" + key).value;
+    });
+    result[name] = parameter;
+  });
+  return result;
+}
+
+function renderParameterControls(parameters) {
+  var container = node("parameterRows");
+  container.innerHTML = "";
+  var limitsDetails = document.createElement("details");
+  limitsDetails.className = "curve-settings parameter-settings";
+  limitsDetails.innerHTML = '<summary>调整范围与步长</summary>';
+  container.appendChild(limitsDetails);
+  ["a", "b", "c"].forEach(function (name) {
+    var parameter = parameters[name];
+    var row = document.createElement("div");
+    row.className = "parameter-row";
+    row.innerHTML = '<div class="parameter-main"><label for="parameter-' + name + '-value">' + name + '</label>' +
+      '<input id="parameter-' + name + '-slider" type="range" aria-label="拖动参数 ' + name + '">' +
+      '<input id="parameter-' + name + '-value" type="number" step="any" aria-label="参数 ' + name + ' 当前值"></div>';
+    container.insertBefore(row, limitsDetails);
+    var limitsRow = document.createElement("div");
+    limitsRow.innerHTML = '<p class="field-help">参数 ' + name + '</p><div class="parameter-limits">' +
+      '<label>最小<input id="parameter-' + name + '-min" type="number" step="any"></label>' +
+      '<label>最大<input id="parameter-' + name + '-max" type="number" step="any"></label>' +
+      '<label>步长<input id="parameter-' + name + '-step" type="number" step="any"></label></div>';
+    limitsDetails.appendChild(limitsRow);
+    var slider = node("parameter-" + name + "-slider");
+    var valueInput = node("parameter-" + name + "-value");
+    ["value", "min", "max", "step"].forEach(function (key) {
+      var control = node("parameter-" + name + "-" + key);
+      control.value = parameter[key];
+      if (key !== "value") { control.setAttribute("aria-label", "参数 " + name + " " + { min: "最小值", max: "最大值", step: "步长" }[key]); }
+      control.addEventListener("change", function () {
+        try {
+          var candidate = {};
+          candidate[name] = readParameters()[name];
+          var validated = window.MathPlotConfig.normalizeParameters(candidate);
+          parameter = validated[name];
+          syncSlider();
+        } catch (_) {
+          // Keep invalid input visible; shared validation reports the precise error.
+          slider.disabled = true;
+        }
+        renderPreview();
+      });
+    });
+    function syncSlider() {
+      // Integer tick positions keep manual off-step values exact until the user drags.
+      slider.min = 0;
+      slider.max = Math.ceil((parameter.max - parameter.min) / parameter.step);
+      slider.step = 1;
+      slider.value = Math.round((parameter.value - parameter.min) / parameter.step);
+      slider.disabled = false;
+      slider.setAttribute("aria-valuetext", String(parameter.value));
+    }
+    syncSlider();
+    slider.addEventListener("input", function () {
+      var value = Math.min(parameter.max, parameter.min + Number(slider.value) * parameter.step);
+      parameter.value = Math.max(parameter.min, Math.min(parameter.max, Number(value.toPrecision(15))));
+      valueInput.value = parameter.value;
+      slider.setAttribute("aria-valuetext", String(parameter.value));
+      // Throttle while dragging so previews update even during a long gesture.
+      if (previewTimer === null) {
+        previewTimer = window.setTimeout(function () { previewTimer = null; renderPreview(); }, 60);
+      }
+    });
+    slider.addEventListener("change", renderPreview);
+  });
+}
+
+function readGuides() {
+  return node("guideLines").value.split(/[\r\n;；]+/).filter(function (line) { return line.trim(); }).map(function (line, index) {
+    var match = line.trim().match(/^([xy])\s*[=＝]\s*(.+)$/i);
+    if (!match) { throw new Error("第 " + (index + 1) + " 条辅助线请按 x=位置 或 y=位置 输入。"); }
+    return { axis: match[1].toLowerCase(), expression: match[2].trim() };
+  });
+}
+
+function setLibraryStatus(message, isError) {
+  node("libraryStatus").textContent = message;
+  node("libraryStatus").className = isError ? "status error" : "field-help";
+}
+
+function refreshFavorites(selectedId) {
+  var list = node("favoriteList");
+  var desired = selectedId || list.value;
+  var items = plotLibrary.list();
+  list.innerHTML = "";
+  if (!items.length) {
+    var placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "暂无收藏";
+    list.appendChild(placeholder);
+  }
+  items.forEach(function (item) {
+    var option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.name;
+    list.appendChild(option);
+  });
+  if (items.some(function (item) { return item.id === desired; })) { list.value = desired; }
+  node("loadFavoriteButton").disabled = !items.length;
+  node("deleteFavoriteButton").disabled = !items.length;
+  return items;
+}
+
+function initializeLibrary() {
+  plotLibrary = window.MathPlotLibrary.forWindow(window);
+  function action(id, callback) {
+    node(id).addEventListener("click", function () {
+      try { callback(); } catch (error) { setLibraryStatus(error.message || String(error), true); }
+    });
+  }
+  action("saveFavoriteButton", function () {
+    if (!renderPreview()) { setLibraryStatus("当前图像有输入错误，请修正后再收藏。", true); return; }
+    var item = plotLibrary.save(node("favoriteName").value, currentConfig);
+    refreshFavorites(item.id);
+    setLibraryStatus("已收藏“" + item.name + "”。", false);
+  });
+  action("loadFavoriteButton", function () {
+    var id = node("favoriteList").value;
+    var item = plotLibrary.list().filter(function (entry) { return entry.id === id; })[0];
+    if (!item) { throw new Error("请先选择一个收藏方案，或刷新列表。"); }
+    if (!applyConfig(item.config, synchronizeSelectionMode())) { throw new Error("方案已载入，请检查绘图输入错误提示。"); }
+    node("favoriteName").value = item.name;
+    node("parameterSettings").open = true;
+    setLibraryStatus("已载入“" + item.name + "”；文档中的图像需点击插入或更新后才会改变。", false);
+  });
+  action("deleteFavoriteButton", function () {
+    plotLibrary.remove(node("favoriteList").value);
+    refreshFavorites();
+    setLibraryStatus("已删除收藏，可在“迁移备份与撤销”中恢复上次列表。", false);
+  });
+  action("refreshFavoritesButton", function () {
+    var items = refreshFavorites();
+    setLibraryStatus("已刷新，共 " + items.length + " 个方案。", false);
+  });
+  action("exportFavoritesButton", function () {
+    node("favoriteBackup").value = plotLibrary.exportText();
+    node("favoriteBackup").focus();
+    node("favoriteBackup").select();
+    setLibraryStatus("备份文字已生成并选中，请复制到文本文件保存。", false);
+  });
+  action("importFavoritesButton", function () {
+    var added = plotLibrary.importText(node("favoriteBackup").value);
+    refreshFavorites();
+    setLibraryStatus("导入完成，新增 " + added + " 个方案；原收藏已保留。", false);
+  });
+  action("undoFavoritesButton", function () {
+    plotLibrary.recoverPrevious();
+    refreshFavorites();
+    setLibraryStatus("已恢复上次收藏列表。", false);
+  });
+  try {
+    refreshFavorites();
+    setLibraryStatus("本机收藏，最多 50 个方案。", false);
+  } catch (error) { setLibraryStatus(error.message, true); }
+}
+
 function readPlotInput() {
   var rows = activeExpressionRows();
   var input = {
@@ -200,6 +368,8 @@ function readPlotInput() {
       };
     }),
     points: readPoints(),
+    parameters: readParameters(),
+    guides: readGuides(),
     bounds: {
       xMin: node("xMin").value,
       xMax: node("xMax").value,
@@ -236,8 +406,12 @@ function applyConfig(config, editing) {
   node("pointAnnotations").value = (normalized.points || []).map(function (point) {
     return [point.label, point.x, point.y].join(",");
   }).join("\n");
+  renderParameterControls(normalized.parameters || window.MathPlotConfig.normalizeParameters({}));
+  node("guideLines").value = (normalized.guides || []).map(function (guide) {
+    return guide.axis + "=" + guide.expression;
+  }).join("\n");
   setEditingMode(editing);
-  renderPreview();
+  return renderPreview();
 }
 
 function renderPreview() {
@@ -248,13 +422,7 @@ function renderPreview() {
   });
   try {
     currentConfig = readPlotInput();
-    currentPlot = FunctionPlotter.generatePlotSvg(
-      currentConfig.expressions,
-      currentConfig.bounds,
-      currentConfig.options,
-      currentConfig.curves,
-      currentConfig.points
-    );
+    currentPlot = FunctionPlotter.generateConfigSvg(currentConfig);
     node("preview").innerHTML = currentPlot.svg;
     setStatus("预览已更新，可" + (editingSelectedPlot ? "更新所选图像。" : "插入到 WPS。"), false);
     return true;
@@ -350,7 +518,7 @@ function loadSelectedPlot(showMissingMessage) {
       }
       return false;
     }
-    applyConfig(selected.config, true);
+    if (!applyConfig(selected.config, true)) { return false; }
     setStatus("已载入所选函数图像，可修改后点击“更新所选图像”。", false);
     return true;
   } catch (error) {
@@ -416,6 +584,7 @@ function applyPreset(name) {
   if (!preset) {
     return;
   }
+  if (name === "parameters") { node("parameterSettings").open = true; }
   var emptyInput = expressionInputs().filter(function (input) {
     return !input.value.trim();
   })[0];
@@ -443,9 +612,10 @@ window.addEventListener("DOMContentLoaded", function () {
   });
   node("previewButton").addEventListener("click", renderPreview);
   node("insertButton").addEventListener("click", insertCurrentPlot);
-  ["showTickLabels", "showGrid", "showBorder", "showLegend", "monochrome", "xMin", "xMax", "yMin", "yMax", "pointAnnotations"].forEach(function (id) {
+  ["showTickLabels", "showGrid", "showBorder", "showLegend", "monochrome", "xMin", "xMax", "yMin", "yMax", "pointAnnotations", "guideLines"].forEach(function (id) {
     node(id).addEventListener("change", renderPreview);
   });
+  initializeLibrary();
   elements("[data-preset]").forEach(function (button) {
     button.addEventListener("click", function () {
       applyPreset(button.getAttribute("data-preset"));

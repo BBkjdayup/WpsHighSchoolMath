@@ -270,7 +270,7 @@
            existingConfig = root.MathFunctionDocument.getSelectedPlotConfig(app);
          }
        } catch (_) {}
-       if (existingConfig && (existingConfig.curves || existingConfig.points || existingConfig.options.monochrome)) {
+       if (existingConfig && (existingConfig.curves || existingConfig.points || existingConfig.options.monochrome || existingConfig.parameters || existingConfig.guides)) {
          throw new Error("所选图像含新版绘图设置，请使用完整函数编辑器修改。旧图已保留。");
        }
        if (forceQuick) {

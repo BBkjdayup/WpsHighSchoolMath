@@ -65,7 +65,10 @@
 
       var identifier = rest.match(/^[A-Za-z]+/);
       if (identifier) {
-        tokens.push({ type: "identifier", value: identifier[0].toLowerCase() });
+        var name = identifier[0].toLowerCase();
+        // Split only adjacent single-letter variables, leaving function names intact.
+        var names = /^[abcx]+$/.test(name) ? name.split("") : [name];
+        names.forEach(function (part) { tokens.push({ type: "identifier", value: part }); });
         index += identifier[0].length;
         continue;
       }
@@ -116,10 +119,12 @@
     return result;
   }
 
-  function compileExpression(expression) {
+  function compileExpression(expression, parameters) {
     if (String(expression || "").length > 1000) { throw new Error("表达式过长，请缩短到 1000 个字符以内。"); }
     var tokens = rawTokens(expression);
     var position = 0;
+    var usedParameters = [];
+    var usesX = false;
 
     function peek(type) {
       return tokens[position] && tokens[position].type === type;
@@ -197,7 +202,17 @@
       if (peek("identifier")) {
         var name = tokens[position++].value;
         if (name === "x") {
+          usesX = true;
           return function (x) { return x; };
+        }
+        if (["a", "b", "c"].indexOf(name) >= 0) {
+          if (!parameters || !Object.prototype.hasOwnProperty.call(parameters, name) ||
+              typeof parameters[name] !== "number" || !isFinite(parameters[name]) || Math.abs(parameters[name]) > 1e9) {
+            throw new Error("请展开“参数滑块”设置参数 " + name + " 的数值。");
+          }
+          var parameterValue = parameters[name];
+          if (usedParameters.indexOf(name) < 0) { usedParameters.push(name); }
+          return function () { return parameterValue; };
         }
         if (name === "pi") {
           return function () { return Math.PI; };
@@ -231,11 +246,13 @@
     if (position !== tokens.length) {
       throw new Error("表达式末尾存在无法解析的内容");
     }
+    evaluator.usedParameters = usedParameters.sort();
+    evaluator.usesX = usesX;
     return evaluator;
   }
 
-  function evaluateExpression(expression, x) {
-    return compileExpression(expression)(x);
+  function evaluateExpression(expression, x, parameters) {
+    return compileExpression(expression, parameters)(x);
   }
 
   function escapeXml(text) {
@@ -266,15 +283,27 @@
   }
 
   function generatePlotSvg(expressions, bounds, options, curves, points) {
+    return generateConfigSvg({ expressions: expressions, bounds: bounds, options: options, curves: curves, points: points });
+  }
+
+  function generateConfigSvg(input) {
     if (!configApi) { throw new Error("绘图配置组件未加载，请重新打开插件。"); }
-    var config = configApi.normalizeConfig({ expressions: expressions, bounds: bounds, options: options, curves: curves, points: points });
+    var config = configApi.normalizeConfig(input);
+    var parameters = {};
+    Object.keys(config.parameters || {}).forEach(function (name) { parameters[name] = config.parameters[name].value; });
+    var usedParameters = [];
+    function rememberParameters(evaluate) {
+      evaluate.usedParameters.forEach(function (name) { if (usedParameters.indexOf(name) < 0) { usedParameters.push(name); } });
+    }
     var formulas = config.expressions.map(normalizeExpression);
     var compiled = [];
     formulas.forEach(function (formula, index) {
       var curve = configApi.normalizeCurve(config.curves && config.curves[index], index);
       if (!curve.visible) { return; }
       try {
-        compiled.push({ label: formula, evaluate: compileExpression(formula), curve: curve, index: index });
+        var evaluate = compileExpression(formula, parameters);
+        rememberParameters(evaluate);
+        compiled.push({ label: formula, evaluate: evaluate, curve: curve, index: index });
       } catch (error) {
         error.message = "第 " + (index + 1) + " 条函数：" + error.message;
         error.curveIndex = index;
@@ -282,8 +311,21 @@
       }
     });
     if (!compiled.length) { throw new Error("请至少显示一条曲线。"); }
+    var guides = (config.guides || []).map(function (guide, index) {
+      try {
+        var evaluate = compileExpression(guide.expression, parameters);
+        if (evaluate.usesX) { throw new Error("等号右边不能含 x，请使用数值或 a、b、c 参数。"); }
+        var value = evaluate(0);
+        if (!isFinite(value) || Math.abs(value) > 1e9) { throw new Error("位置须为绝对值不超过十亿的有限数值。"); }
+        rememberParameters(evaluate);
+        return { axis: guide.axis, value: value, expression: guide.expression };
+      } catch (error) {
+        error.message = "第 " + (index + 1) + " 条辅助线：" + error.message;
+        throw error;
+      }
+    });
     var limits = config.bounds;
-    var settings = options || {};
+    var settings = input.options || {};
     var showTickLabels = settings.showTickLabels !== false;
     var showGrid = settings.showGrid !== false;
     var showBorder = settings.showBorder !== false;
@@ -307,6 +349,7 @@
     var legendRows = showLegend ? Math.ceil(compiled.length / legendItemsPerRow) : 0;
     if (showLegend) {
       margin.top = 18 + legendRows * 20;
+      if (usedParameters.length) { margin.top += 20; }
     }
     height = Math.max(height, margin.top + margin.bottom + 120);
     var plotWidth = width - margin.left - margin.right;
@@ -383,6 +426,26 @@
     }
 
     body.push('<g clip-path="url(#' + clipId + ')">');
+    guides.forEach(function (guide, index) {
+      var vertical = guide.axis === "x";
+      if (guide.value < (vertical ? limits.xMin : limits.yMin) || guide.value > (vertical ? limits.xMax : limits.yMax)) { return; }
+      var x1 = vertical ? px(guide.value) : margin.left;
+      var y1 = vertical ? margin.top : py(guide.value);
+      var x2 = vertical ? x1 : margin.left + plotWidth;
+      var y2 = vertical ? margin.top + plotHeight : y1;
+      var label = guide.axis + "=" + guide.expression;
+      if (guide.expression !== String(guide.value)) {
+        var roundedValue = Number(guide.value.toPrecision(8));
+        label += " (" + (roundedValue !== guide.value ? "≈" : "") + roundedValue + ")";
+      }
+      body.push('<line data-guide="' + index + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 +
+        '" stroke="#475569" stroke-width="1.3" stroke-dasharray="6 4"/>');
+      var labelX = vertical ? Math.min(x1 + 5, margin.left + plotWidth - 5) : margin.left + plotWidth - 5;
+      var anchor = !vertical || x1 > margin.left + plotWidth / 2 ? "end" : "start";
+      body.push('<text data-guide-label="' + index + '" x="' + labelX + '" y="' + (vertical ? margin.top + 15 : Math.max(margin.top + 15, y1 - 5)) +
+        '" text-anchor="' + anchor + '" font-size="12" fill="#475569"><title>' + escapeXml(label) + '</title>' +
+        escapeXml(label.length > 26 ? label.slice(0, 25) + "…" : label) + '</text>');
+    });
     var endpoints = [];
     compiled.forEach(function (formula) {
       var segments = [];
@@ -461,6 +524,11 @@
     body.push("</g>");
 
     if (showLegend) {
+      if (usedParameters.length) {
+        var parameterLabel = usedParameters.sort().map(function (name) { return name + "=" + parameters[name]; }).join("，");
+        body.push('<text data-parameters="true" x="' + margin.left + '" y="' + (18 + legendRows * 20) +
+          '" font-size="12" fill="#475569">' + escapeXml(parameterLabel) + '</text>');
+      }
       compiled.forEach(function (formula, index) {
         var legendColumn = index % legendItemsPerRow;
         var legendRow = Math.floor(index / legendItemsPerRow);
@@ -498,6 +566,7 @@
     normalizeExpression: normalizeExpression,
     compileExpression: compileExpression,
     evaluateExpression: evaluateExpression,
-    generatePlotSvg: generatePlotSvg
+    generatePlotSvg: generatePlotSvg,
+    generateConfigSvg: generateConfigSvg
   };
 });

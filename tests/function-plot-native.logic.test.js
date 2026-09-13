@@ -186,4 +186,13 @@ function createContext(app, answers) {
   assert(alerts.some(message => message.includes("旧图已保留")));
 }
 
+for (const extra of [{ parameters: { a: { value: 1 } } }, { guides: [{ axis: "x", expression: "1" }] }]) {
+  const { context, alerts } = createContext({}, []);
+  context.window.MathFunctionDocument = {
+    getSelectedPlotConfig() { return { ...extra, options: {} }; }
+  };
+  assert.equal(context.MathFunctionPlot.openQuickWriter({}), false);
+  assert(alerts.some(message => message.includes("旧图已保留")));
+}
+
 console.log("native function plot tests passed");
