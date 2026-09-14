@@ -8,7 +8,7 @@
 
 数学符号 · 函数绘图 · 试卷模板 · 文档排版
 
-**Windows**　｜　**WPS 文字 / 演示**　｜　**本地 SVG 绘图**　｜　**v0.8.1**
+**Windows**　｜　**WPS 文字 / 演示**　｜　**本地 SVG 绘图**　｜　**v0.8.1**　｜　[**MIT License**](LICENSE)
 
 [看功能](#features) · [看绘图示例](#gallery) · [开始使用](#start) · [运行源码](#development) · [参与贡献](CONTRIBUTING.md)
 
@@ -127,6 +127,11 @@
 
 下载或克隆源码后，用现代桌面浏览器打开 `ui/function-plot.html`，即可输入表达式并查看图像。浏览器预览不能插入 WPS，收藏存储也与 WPS 环境分开。
 
+```powershell
+git clone https://github.com/amparolazar557-creator/WpsHighSchoolMath.git
+cd WpsHighSchoolMath
+```
+
 ### 在 Windows 上构建内部测试包
 
 在**项目根目录**打开终端，准备 Node.js（当前验证版本为 `24.14.1`）和 Windows PowerShell 5.1：
@@ -177,7 +182,7 @@ WpsHighSchoolMath/
 - 分析结果为数值近似；当前不提供符号求导、竖直切线、单侧端点切线或完整几何作图。
 - 当前内部安装包尚未取得可信 Authenticode 签名，请勿将其描述为已签名的正式商业版本。
 
-**源码许可：待项目所有者选定后加入根目录 LICENSE，并完成公开发布。** 第三方组件保留各自许可，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目是第三方加载项，与 WPS 官方不存在隶属关系。
+**本项目源码采用 [MIT License](LICENSE)**，允许使用、修改和再发布，须保留版权与许可声明。该许可同样适用于源码中的授权模块；安装包当前的试用机制不限制 MIT 赋予的源码使用与修改权利。第三方组件保留各自许可，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目是第三方加载项，与 WPS 官方不存在隶属关系。
 
 ## 一起完善它
 

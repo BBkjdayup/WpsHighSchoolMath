@@ -30,4 +30,4 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-te
 - 使用安全表达式解析器，不执行用户表达式中的 JavaScript。
 - 插入新图片并验证成功后，才能移除旧图；保留旧版绘图配置的读取能力。
 - 不更换现有发行公钥，不上传私钥或真实发码记录。
-- 第三方组件需保留许可；源码许可按根目录的最终 LICENSE 执行。
+- 第三方组件需保留许可；提交的项目代码采用根目录 LICENSE 中的 MIT 许可。
