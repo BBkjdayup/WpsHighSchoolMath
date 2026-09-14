@@ -16,4 +16,10 @@ output/
 *.key
 *.pfx
 *.p12
+.env
+.env.*
+!.env.example
+issuance-history*.csv
+*-private.*
+*.token
 WPS高中数学插件效果图*.png
