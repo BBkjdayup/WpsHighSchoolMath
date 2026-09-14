@@ -429,6 +429,26 @@ body {
   margin-top: 10px;
 }
 
+.function-shell .analysis-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.function-shell .analysis-toggle input {
+  width: auto;
+  margin: 0;
+}
+
+.function-shell .analysis-results {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 @media (min-width: 360px) {
   .function-shell .presets {
     grid-template-columns: repeat(5, minmax(0, 1fr));

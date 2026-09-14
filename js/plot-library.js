@@ -30,6 +30,10 @@
       var value = evaluate(0);
       if (evaluate.usesX || !isFinite(value) || Math.abs(value) > 1e9) { throw new Error("辅助线位置无效。"); }
     });
+    if (config.analysis && config.analysis.tangent) {
+      var position = plotter.compileExpression(config.analysis.tangent.x, parameters);
+      if (position.usesX || !isFinite(position(0)) || Math.abs(position(0)) > 1e9) { throw new Error("切点横坐标无效。"); }
+    }
     return config;
   }
 
@@ -37,7 +41,7 @@
     if (typeof text !== "string" || text.length > MAX_TEXT) { throw new Error("收藏备份过大，最多支持 2 百万个字符。"); }
     var data;
     try { data = JSON.parse(text); } catch (_) { throw new Error("收藏数据无法读取，请检查备份文字；原收藏未被覆盖。"); }
-    if (!data || data.format !== "HSM_PLOT_LIBRARY" || data.version !== 1 || !Array.isArray(data.items) || data.items.length > MAX_ITEMS) {
+    if (!data || data.format !== "HSM_PLOT_LIBRARY" || [1, 2].indexOf(data.version) < 0 || !Array.isArray(data.items) || data.items.length > MAX_ITEMS) {
       throw new Error("收藏备份格式或版本不支持，最多支持 50 个方案。");
     }
     var ids = [];
@@ -55,7 +59,8 @@
   }
 
   function encode(items) {
-    var text = JSON.stringify({ format: "HSM_PLOT_LIBRARY", version: 1, items: items });
+    var version = items.some(function (item) { return Boolean(item.config.analysis); }) ? 2 : 1;
+    var text = JSON.stringify({ format: "HSM_PLOT_LIBRARY", version: version, items: items });
     if (text.length > MAX_TEXT) { throw new Error("收藏空间已满，请先导出备份并删除部分方案。"); }
     return text;
   }

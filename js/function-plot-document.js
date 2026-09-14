@@ -12,6 +12,7 @@
   var METADATA_PREFIX = "HSM_FUNCTION_PLOT_V1:";
   var METADATA_PREFIX_V2 = "HSM_FUNCTION_PLOT_V2:";
   var METADATA_PREFIX_V3 = "HSM_FUNCTION_PLOT_V3:";
+  var METADATA_PREFIX_V4 = "HSM_FUNCTION_PLOT_V4:";
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -30,6 +31,7 @@
     var config = normalizeConfig(input);
     var prefix = config.curves || config.points || config.options.monochrome ? METADATA_PREFIX_V2 : METADATA_PREFIX;
     if (config.parameters || config.guides) { prefix = METADATA_PREFIX_V3; }
+    if (config.analysis) { prefix = METADATA_PREFIX_V4; }
     return humanLabel(config) + "\n" + prefix + encodeURIComponent(JSON.stringify(config));
   }
 
@@ -37,6 +39,7 @@
     var text = String(value || "");
     var prefix = text.indexOf(METADATA_PREFIX_V2) >= 0 ? METADATA_PREFIX_V2 : METADATA_PREFIX;
     if (text.indexOf(METADATA_PREFIX_V3) >= 0) { prefix = METADATA_PREFIX_V3; }
+    if (text.indexOf(METADATA_PREFIX_V4) >= 0) { prefix = METADATA_PREFIX_V4; }
     var prefixIndex = text.indexOf(prefix);
     if (prefixIndex < 0) {
       return null;
@@ -341,6 +344,7 @@
     METADATA_PREFIX: METADATA_PREFIX,
     METADATA_PREFIX_V2: METADATA_PREFIX_V2,
     METADATA_PREFIX_V3: METADATA_PREFIX_V3,
+    METADATA_PREFIX_V4: METADATA_PREFIX_V4,
     getDefaultConfig: function () { return configApi.getDefaultConfig(); },
     normalizeConfig: normalizeConfig,
     serializeMetadata: serializeMetadata,

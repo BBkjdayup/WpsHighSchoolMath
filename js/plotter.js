@@ -1,11 +1,12 @@
 (function (root, factory) {
   var configApi = typeof module === "object" && module.exports ? require("./plot-config.js") : root.MathPlotConfig;
-  var api = factory(configApi);
+  var analysisApi = typeof module === "object" && module.exports ? require("./plot-analysis.js") : root.MathPlotAnalysis;
+  var api = factory(configApi, analysisApi);
   root.FunctionPlotter = api;
   if (typeof module === "object" && module.exports) {
     module.exports = api;
   }
-})(typeof window !== "undefined" ? window : globalThis, function (configApi) {
+})(typeof window !== "undefined" ? window : globalThis, function (configApi, analysisApi) {
   var FUNCTIONS = {
     sin: Math.sin,
     cos: Math.cos,
@@ -325,6 +326,16 @@
       }
     });
     var limits = config.bounds;
+    var analysis = { points: [], tangent: null, messages: [] };
+    if (config.analysis) {
+      if (!analysisApi) { throw new Error("交点与切线组件未加载，请重新打开编辑器。"); }
+      analysis = analysisApi.analyze(config, compiled, function (expression) {
+        var evaluate = compileExpression(expression, parameters);
+        if (evaluate.usesX) { throw new Error("切点位置不能含变量 x，请使用数值或 a、b、c 参数。"); }
+        rememberParameters(evaluate);
+        return evaluate(0);
+      });
+    }
     var settings = input.options || {};
     var showTickLabels = settings.showTickLabels !== false;
     var showGrid = settings.showGrid !== false;
@@ -350,6 +361,7 @@
     if (showLegend) {
       margin.top = 18 + legendRows * 20;
       if (usedParameters.length) { margin.top += 20; }
+      if (analysis.tangent) { margin.top += 20; }
     }
     height = Math.max(height, margin.top + margin.bottom + 120);
     var plotWidth = width - margin.left - margin.right;
@@ -426,6 +438,25 @@
     }
 
     body.push('<g clip-path="url(#' + clipId + ')">');
+    if (analysis.tangent) {
+      var tangent = analysis.tangent;
+      var edges = [];
+      function edge(x, y) {
+        if (isFinite(x) && isFinite(y) && x >= limits.xMin && x <= limits.xMax && y >= limits.yMin && y <= limits.yMax) {
+          if (!edges.some(function (point) { return point.x === x && point.y === y; })) { edges.push({ x: x, y: y }); }
+        }
+      }
+      edge(limits.xMin, tangent.y + tangent.slope * (limits.xMin - tangent.x));
+      edge(limits.xMax, tangent.y + tangent.slope * (limits.xMax - tangent.x));
+      if (tangent.slope !== 0) {
+        edge(tangent.x + (limits.yMin - tangent.y) / tangent.slope, limits.yMin);
+        edge(tangent.x + (limits.yMax - tangent.y) / tangent.slope, limits.yMax);
+      }
+      if (edges.length >= 2) {
+        body.push('<line data-tangent="true" x1="' + px(edges[0].x) + '" y1="' + py(edges[0].y) +
+          '" x2="' + px(edges[1].x) + '" y2="' + py(edges[1].y) + '" stroke="#111111" stroke-width="1.8" stroke-dasharray="10 4 2 4"/>');
+      }
+    }
     guides.forEach(function (guide, index) {
       var vertical = guide.axis === "x";
       if (guide.value < (vertical ? limits.xMin : limits.yMin) || guide.value > (vertical ? limits.xMax : limits.yMax)) { return; }
@@ -513,17 +544,34 @@
       body.push('<circle data-endpoint="' + (point.closed ? "closed" : "open") + '" cx="' + px(point.x) + '" cy="' + py(point.y) +
         '" r="4" fill="' + (point.closed ? point.color : "#ffffff") + '" stroke="' + point.color + '" stroke-width="1.8"/>');
     });
-    (config.points || []).forEach(function (point) {
+    function pointLabel(name, point) {
+      return name + "≈(" + Number(point.x.toPrecision(5)) + ", " + Number(point.y.toPrecision(5)) + ")";
+    }
+    var analysisPoints = analysis.points.map(function (point, index) {
+      return { x: point.x, y: point.y, label: pointLabel("P" + (index + 1), point), kind: "intersection" };
+    });
+    if (analysis.tangent) {
+      analysisPoints.push({ x: analysis.tangent.x, y: analysis.tangent.y, label: pointLabel("T", analysis.tangent), kind: "tangent" });
+    }
+    (config.points || []).concat(analysisPoints).forEach(function (point) {
       if (point.x < limits.xMin || point.x > limits.xMax || point.y < limits.yMin || point.y > limits.yMax) { return; }
       var anchor = point.x > (limits.xMin + limits.xMax) / 2 ? "end" : "start";
       var offset = anchor === "end" ? -8 : 8;
-      body.push('<circle data-point="true" cx="' + px(point.x) + '" cy="' + py(point.y) + '" r="3.5" fill="#111111"/>');
+      body.push('<circle data-point="true"' + (point.kind ? ' data-analysis-point="' + point.kind + '"' : "") + ' cx="' + px(point.x) + '" cy="' + py(point.y) + '" r="3.5" fill="#111111"/>');
       body.push('<text x="' + (px(point.x) + offset) + '" y="' + Math.max(margin.top + 14, py(point.y) - 8) +
         '" text-anchor="' + anchor + '" font-size="13" fill="#111111">' + escapeXml(point.label || ("(" + point.x + ", " + point.y + ")")) + '</text>');
     });
     body.push("</g>");
 
     if (showLegend) {
+      if (analysis.tangent) {
+        var tangentLabel = "切线：y ≈ " + Number(analysis.tangent.y.toPrecision(8)) + " + " +
+          Number(analysis.tangent.slope.toPrecision(8)) + "·(x − (" + Number(analysis.tangent.x.toPrecision(8)) + "))";
+        var labelLimit = Math.floor(availableLegendWidth / 7);
+        body.push('<text data-tangent-label="true" x="' + margin.left + '" y="' + (margin.top - 8) +
+          '" font-size="12" fill="#111111"><title>' + escapeXml(tangentLabel) + '</title>' +
+          escapeXml(tangentLabel.length > labelLimit ? tangentLabel.slice(0, labelLimit - 1) + "…" : tangentLabel) + '</text>');
+      }
       if (usedParameters.length) {
         var parameterLabel = usedParameters.sort().map(function (name) { return name + "=" + parameters[name]; }).join("，");
         body.push('<text data-parameters="true" x="' + margin.left + '" y="' + (18 + legendRows * 20) +
@@ -558,6 +606,7 @@
       height: height,
       expressions: formulas,
       bounds: limits,
+      analysis: analysis,
       svg: '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + " " + height + '" role="img" aria-label="函数图像">' + svgBody + "</svg>"
     };
   }

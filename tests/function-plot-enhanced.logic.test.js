@@ -152,17 +152,20 @@ for (const failure of ["insert", "metadata"]) {
 
 {
   const v3 = { ...config, parameters: configApi.normalizeParameters({}), guides: [{ axis: "x", expression: "a" }] };
-  for (const failure of [undefined, "insert", "metadata"]) {
-    const fixture = writerFixture(failure);
-    fixture.previous.AlternativeText = documents.serializeMetadata(v3);
-    assert.deepEqual(documents.getSelectedPlot(fixture.app).config, configApi.normalizeConfig(v3));
-    if (failure) {
-      assert.throws(() => documents.insertOrUpdate(fixture.app, "plot.svg", plot, v3));
-      assert(!fixture.previous.deleted);
-    } else {
-      const result = documents.insertOrUpdate(fixture.app, "plot.svg", plot, v3);
-      assert(result.updated);
-      assert.deepEqual(documents.parseMetadata(result.shape.AlternativeText), configApi.normalizeConfig(v3));
+  const v4 = { ...v3, analysis: { tangent: { curve: 0, x: "1" } } };
+  for (const stored of [v3, v4]) {
+    for (const failure of [undefined, "insert", "metadata"]) {
+      const fixture = writerFixture(failure);
+      fixture.previous.AlternativeText = documents.serializeMetadata(stored);
+      assert.deepEqual(documents.getSelectedPlot(fixture.app).config, configApi.normalizeConfig(stored));
+      if (failure) {
+        assert.throws(() => documents.insertOrUpdate(fixture.app, "plot.svg", plot, stored));
+        assert(!fixture.previous.deleted);
+      } else {
+        const result = documents.insertOrUpdate(fixture.app, "plot.svg", plot, stored);
+        assert(result.updated);
+        assert.deepEqual(documents.parseMetadata(result.shape.AlternativeText), configApi.normalizeConfig(stored));
+      }
     }
   }
 }

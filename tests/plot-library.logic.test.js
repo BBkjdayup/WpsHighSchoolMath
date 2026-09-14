@@ -34,7 +34,7 @@ const before = backend.getItem(library.KEY);
 imported.items.push({ id: "bad", name: "不可用", config: { ...config, guides: [{ axis: "x", expression: "1/0" }] } });
 assert.throws(() => store.importText(JSON.stringify(imported)), /辅助线/);
 assert.equal(backend.getItem(library.KEY), before, "failed import must be all-or-nothing");
-for (const bad of ["oops", "x".repeat(2000001), '{"version":2}', JSON.stringify({ ...JSON.parse(text), version: 2 })]) {
+for (const bad of ["oops", "x".repeat(2000001), '{"version":3}', JSON.stringify({ ...JSON.parse(text), version: 3 })]) {
   assert.throws(() => store.importText(bad));
   assert.equal(backend.getItem(library.KEY), before);
 }

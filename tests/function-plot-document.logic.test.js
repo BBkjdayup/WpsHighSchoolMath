@@ -119,7 +119,8 @@ function makeSlide(existingShapes) {
   const updatedConfig = Object.assign({}, config, {
     expressions: ["a*abs(x)+c"],
     parameters: require("../js/plot-config.js").normalizeParameters({}),
-    guides: [{ axis: "y", expression: "c" }]
+    guides: [{ axis: "y", expression: "c" }],
+    analysis: { tangent: { curve: 0, x: "1" } }
   });
   const updated = functionDocument.insertOrUpdate(app, "C:\\Temp\\plot-2.svg", plot, updatedConfig);
   assert.equal(updated.updated, true);

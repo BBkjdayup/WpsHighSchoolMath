@@ -127,9 +127,11 @@
     }
     var expressions = [];
     var curves = [];
+    var indexMap = {};
     source.expressions.forEach(function (entry, index) {
       var expression = String(entry === null || entry === undefined ? "" : entry).trim();
       if (!expression) { return; }
+      indexMap[index] = expressions.length;
       try {
         if (expression.length > 1000) { throw new Error("表达式过长，请缩短到 1000 个字符以内。"); }
         curves.push(normalizeCurve(source.curves && source.curves[index], index));
@@ -157,6 +159,38 @@
     if (options.monochrome !== undefined) { result.options.monochrome = options.monochrome === true; }
     if (source.parameters !== undefined) { result.parameters = normalizeParameters(source.parameters); }
     if (source.guides !== undefined) { result.guides = normalizeGuides(source.guides); }
+    if (source.analysis !== undefined) {
+      var analysis = source.analysis;
+      if (!analysis || typeof analysis !== "object" || Array.isArray(analysis)) { throw new Error("交点与切线设置无效。"); }
+      var normalizedAnalysis = {};
+      function reference(value) {
+        if (typeof value !== "number" || value % 1 !== 0 || !Object.prototype.hasOwnProperty.call(indexMap, value)) {
+          throw new Error("分析对象不存在或表达式为空，请重新选择曲线。");
+        }
+        var index = indexMap[value];
+        if (!curves[index].visible) { throw new Error("分析对象未显示，请先显示相应曲线。"); }
+        return index;
+      }
+      if (analysis.intersection) {
+        var search = analysis.intersection;
+        var first = reference(search.first);
+        var second = search.second === "axis" ? "axis" : reference(search.second);
+        if (first === second) { throw new Error("请为交点选择两条不同曲线。"); }
+        var min = number(search.min, "交点搜索左端", true);
+        var max = number(search.max, "交点搜索右端", true);
+        if ((max === null ? result.bounds.xMax : max) - (min === null ? result.bounds.xMin : min) < 1e-8) {
+          throw new Error("交点搜索右端须大于左端，留空端点使用当前横坐标范围。");
+        }
+        normalizedAnalysis.intersection = { first: first, second: second, min: min, max: max };
+      }
+      if (analysis.tangent) {
+        var tangent = analysis.tangent;
+        var x = String(tangent.x === undefined ? "" : tangent.x).trim();
+        if (!x || x.length > 100) { throw new Error("切点横坐标请输入 1—100 个字符的数值或参数表达式。"); }
+        normalizedAnalysis.tangent = { curve: reference(tangent.curve), x: x };
+      }
+      if (Object.keys(normalizedAnalysis).length) { result.analysis = normalizedAnalysis; }
+    }
     return result;
   }
 

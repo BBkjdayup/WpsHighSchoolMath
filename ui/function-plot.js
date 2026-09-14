@@ -5,6 +5,7 @@ var renderedEditingMode = null;
 var selectionMonitorId = null;
 var previewTimer = null;
 var plotLibrary = null;
+var nextCurveId = 0;
 
 var PRESETS = {
   quadratic: { expression: "x^2" },
@@ -68,6 +69,7 @@ function refreshRemoveButtons() {
   if (node("addExpressionButton")) {
     node("addExpressionButton").disabled = rows.length >= 12;
   }
+  if (window.MathPlotAnalysisPanel) { window.MathPlotAnalysisPanel.refresh(rows); }
 }
 
 function addExpressionRow(value, focusInput, curveConfig) {
@@ -78,6 +80,7 @@ function addExpressionRow(value, focusInput, curveConfig) {
   var curve = window.MathPlotConfig.normalizeCurve(curveConfig, elements(".expression-row").length);
   var row = document.createElement("div");
   row.className = "expression-row";
+  row.setAttribute("data-curve-id", "curve-" + (++nextCurveId));
   var main = document.createElement("div");
   main.className = "expression-main";
 
@@ -96,7 +99,10 @@ function addExpressionRow(value, focusInput, curveConfig) {
       addExpressionRow("", true);
     }
   });
-  input.addEventListener("input", schedulePreview);
+  input.addEventListener("input", function () {
+    if (window.MathPlotAnalysisPanel) { window.MathPlotAnalysisPanel.refresh(elements(".expression-row")); }
+    schedulePreview();
+  });
 
   var remove = document.createElement("button");
   remove.type = "button";
@@ -370,6 +376,7 @@ function readPlotInput() {
     points: readPoints(),
     parameters: readParameters(),
     guides: readGuides(),
+    analysis: window.MathPlotAnalysisPanel ? window.MathPlotAnalysisPanel.read(rows) : undefined,
     bounds: {
       xMin: node("xMin").value,
       xMax: node("xMax").value,
@@ -410,6 +417,7 @@ function applyConfig(config, editing) {
   node("guideLines").value = (normalized.guides || []).map(function (guide) {
     return guide.axis + "=" + guide.expression;
   }).join("\n");
+  if (window.MathPlotAnalysisPanel) { window.MathPlotAnalysisPanel.apply(normalized, activeExpressionRows()); }
   setEditingMode(editing);
   return renderPreview();
 }
@@ -424,12 +432,14 @@ function renderPreview() {
     currentConfig = readPlotInput();
     currentPlot = FunctionPlotter.generateConfigSvg(currentConfig);
     node("preview").innerHTML = currentPlot.svg;
+    if (window.MathPlotAnalysisPanel) { window.MathPlotAnalysisPanel.showResults(currentPlot.analysis, currentConfig); }
     setStatus("预览已更新，可" + (editingSelectedPlot ? "更新所选图像。" : "插入到 WPS。"), false);
     return true;
   } catch (error) {
     currentPlot = null;
     currentConfig = null;
     node("preview").innerHTML = "";
+    if (window.MathPlotAnalysisPanel) { window.MathPlotAnalysisPanel.showResults(null, null); }
     var message = error.message || String(error);
     if (typeof error.curveIndex === "number") {
       var row = activeExpressionRows()[error.curveIndex];
@@ -616,6 +626,7 @@ window.addEventListener("DOMContentLoaded", function () {
     node(id).addEventListener("change", renderPreview);
   });
   initializeLibrary();
+  if (window.MathPlotAnalysisPanel) { window.MathPlotAnalysisPanel.initialize(renderPreview); }
   elements("[data-preset]").forEach(function (button) {
     button.addEventListener("click", function () {
       applyPreset(button.getAttribute("data-preset"));
