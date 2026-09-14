@@ -89,7 +89,15 @@ body {
   display: none !important;
 }
 
-.tool-center-shell .function-shell,
+.tool-center-shell #functionPlotPanel {
+  overflow: hidden;
+}
+
+.tool-center-shell #functionPlotRoot {
+  height: 100%;
+  min-height: 0;
+}
+
 .tool-center-shell .license-shell {
   min-height: 100%;
 }

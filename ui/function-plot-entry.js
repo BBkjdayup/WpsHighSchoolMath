@@ -2,6 +2,7 @@
   function panelMarkup() {
     return [
       '<main id="functionPlotApp" class="function-shell">',
+      '  <div class="function-content" role="region" aria-label="绘图设置与预览" tabindex="0">',
       '  <header class="editor-header">',
       '    <div><h1>函数绘图</h1><p>调参数、画辅助线、收藏常用教学图</p></div>',
       '    <span id="editModeBadge" class="mode-badge">新建图像</span>',
@@ -117,11 +118,14 @@
       '      </div></details>',
       '    </div>',
       '  </details>',
+      '  </div>',
+      '  <footer class="function-footer" aria-label="绘图操作">',
       '  <p id="status" class="status" role="status" aria-live="polite">支持：+ − × ÷ ^、sin、cos、tan、cot、sec、csc、sqrt、abs、ln、log、exp、π。</p>',
       '  <div class="actions">',
       '    <button id="previewButton" type="button">更新预览</button>',
       '    <button id="insertButton" type="button" class="primary">插入新图像</button>',
       '  </div>',
+      '  </footer>',
       '</main>'
     ].join("");
   }
