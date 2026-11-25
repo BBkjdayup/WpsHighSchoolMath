@@ -1,0 +1,12 @@
+# The installer verifies the bytes of the Writer and Presentation payloads.
+/index.html text eol=lf
+/main.js text eol=lf
+/manifest.xml text eol=lf
+/ribbon.xml text eol=lf
+/ppt/*.html text eol=lf
+/ppt/*.js text eol=lf
+/ppt/*.xml text eol=lf
+/js/**/*.js text eol=lf
+/ui/**/*.css text eol=lf
+/ui/**/*.html text eol=lf
+/ui/**/*.js text eol=lf

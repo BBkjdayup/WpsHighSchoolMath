@@ -45,6 +45,8 @@ Windows 桌面版 WPS 文字与演示共用本地绘图页面。文字另有试�
 
 从根目录运行以下 PowerShell 命令。开发使用 Node.js，安装和使用插件只需 Windows 与 WPS。
 
+两个宿主的载荷按文件字节计算 SHA-256。仓库的 `.gitattributes` 为直接打包的 HTML、JavaScript、CSS 和 XML 固定 LF 换行，使 Windows 默认检出的加载项可以复现发行清单的载荷摘要。
+
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-offline.ps1 -BuildMode Internal
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-tests.ps1
