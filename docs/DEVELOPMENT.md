@@ -1,25 +1,15 @@
 # 开发、安装与发行说明
 
-本页保留项目原有的详细操作说明。下述命令均从**仓库根目录**运行；功能总览和截图见 [README](../README.md)，架构与验收要求见 [HANDOFF](../HANDOFF.md)。
+## 0.9.1 免费版
 
-项目移交、架构约束、授权私钥边界和接手验收步骤见 `HANDOFF.md`。生成精简桌面交接包可运行 `scripts/build-handoff.ps1`。
+Windows 桌面版 WPS 文字与演示共用本地绘图页面。文字另有试卷模板和排版工具。全部功能长期免费，直接从功能区「高中数学」打开。
 
-这是一个面向高中数学老师的 WPS JS 插件样品，当前包含 WPS 文字版和 WPS 演示版。
+### 安装与升级
 
-## 已实现
-
-- WPS 文字与 WPS 演示中都只新增一个 `高中数学` 页签；数学符号、试卷工具、函数图像和授权入口集中在同一 Ribbon 中。
-- 不插入公式对象，主要提供符号、试卷模板和文档排版能力。
-- 包含关系运算、集合逻辑、平面几何、函数代数、微积分、概率统计、希腊字母七个分组。
-- 集合符号同时提供传统子集、子集、真子集 `⫋`、传统超集、超集和真超集 `⫌`。
-- 插入数学符号时使用 `Cambria Math` 字体，使字形尽量与 WPS 原生数学符号一致，并在插入后恢复正文原字体。
-- 所有符号分组集中排列在页签左侧。
-- WPS 文字版右侧提供卷头、题型标题、选择题布局、填空横线和解答题模板。
-- WPS 文字版支持对齐、删除空格、表格转文字、行距、下划线、着重号、隐藏文字、A4 页面和页码。
-- WPS 演示版支持插入数学符号到当前文本框；没有文本框时自动新建文本框。
-- 无文本框时，新符号框会读取已有形状并选择空白位置，不再固定覆盖标题。
-- 卷头会保留在单栏节中；使用 A4 横向两栏时，正文分两栏，学校、班级、姓名和考号仍保持通栏。
-- 支持输入一个或多个函数表达式，预览坐标系并将函数图像插入 WPS 文字或当前幻灯片。
+1. 若旧版 WPS 仍开着，在文字和演示的函数编辑器分别展开「我的绘图收藏 → 迁移备份与撤销 → 导出备份文字」，把文字复制到文件。收藏可能随旧会话结束而消失。
+2. 保存文档和课件，等自动化任务完成后，完全退出 WPS 文字和演示。安装器检测到后台 WPS 进程时也会提示稍后重试。运行离线 EXE，或解压完整 ZIP 后双击 `install.cmd`。
+3. 重启两个宿主。若 WPS 询问是否信任此加载项，确认来源后按 WPS 提示处理。在新版「我的绘图收藏」中粘贴备份并「合并导入」。旧文档中的插件图也可以选中、载入并重新收藏。
+4. Windows 设置的「已安装的应用」或开始菜单可卸载，ZIP 中的 `uninstall.cmd` 是备用入口。安装故障日志在 `%LOCALAPPDATA%\WpsHighSchoolMath\Logs`。
 
 ## 函数图像
 
@@ -39,8 +29,7 @@
 - 表达式错误和无效定义域会标记对应行。最多 12 条曲线；过于密集的函数会提示缩小范围，避免长时间占用 WPS。
 - 未启用分析的参数与辅助线仍使用 V3；本版原生快捷输入回退会保留含新版设置的图像，并提示使用完整编辑器。
 - 更新图像时先创建新图并验证编辑参数，再移除旧图；添加失败不会先删除旧图。新增图像使用折叠插入范围，保留选中文本。若 WPS 无法确认旧图删除结果，则保留新图并提示检查多余图像。
-- 离线安装后点击 `函数编辑器`，WPS 会打开版本化的共享工具窗格并默认切到 `函数绘图`；插件不启动本地服务、不监听端口、不连接 localhost，也不启动外部页面助手。
-- `函数编辑器` 与 `授权中心` 始终复用同一个任务窗格，通过顶部页签切换。`PluginStorage` 同时负责 ready token 和页签切换确认；旧窗格失效时才重建，避免两个窗格并排挤压文档区域。
+- 离线安装后点击 `函数编辑器`，WPS 会直接打开版本化的本地函数绘图页；插件不启动本地服务、不监听端口、不连接 localhost，也不启动外部页面助手。
 - 编辑器可添加多条函数、按回车新增函数，或重复点击预设追加曲线。
 - 支持 `+ - * / ^`、隐式乘法 `2x`、括号以及 `sin`、`cos`、`tan`、`sqrt`、`abs`、`ln`、`log`、`exp` 等函数。
 - 根号可写 `√x`、`√2`；根号后接函数或复杂表达式请写成 `√(sin(x))`、`√(x+1)`。
@@ -52,116 +41,27 @@
 - PPT 新插入的函数图会扫描当前页形状，优先选择零重叠的最大区域；页面拥挤时才逐级缩小并选择重叠最少的位置。
 - 图像完全在本地生成，以 SVG 格式插入 WPS 文字或 WPS 演示，不依赖网络。
 
-## 授权中心
+## 构建与验证
 
-- Writer 与 PPT 的 `授权中心` 都切换到共享工具窗格中的授权页签，并复用函数绘图页的本地白名单、单例窗格与 ready 握手；正常授权流程不使用 `alert`、`InputBox` 或 `prompt`。
-- 面板集中展示授权类型、到期日期、剩余时间和可用范围，可复制本机机器码、粘贴激活码并立即刷新状态。
-- 购买与续费联系方式默认折叠，需要时展开；微信二维码、微信号 `********` 和 QQ `*********` 均保留并可分别复制，粘贴、无效码和激活成功都使用页内文字反馈。
-- 旧版 WPS 无法直接读取剪贴板时，`粘贴激活码` 会聚焦输入框并提示按 `Ctrl+V`，不会打开系统输入框。
-- 授权使用 Ed25519 非对称签名：发码电脑保存私钥，插件安装包只保存公钥。插件可以验证月卡、季卡、年卡和永久卡，但不能自行生成有效激活码。
-- 授权校验、机器码和激活码均保留在本机，不上传文档或授权数据，也不需要授权服务器。
-- 客户首次加载插件时开始连续 14 天全功能试用，首次加载当天算第 1 天；第 15 天起，WPS 文字中的试卷功能仍可使用，其他功能需要激活。普通卸载或重新安装不会重置试用期。
-
-### 生成激活码
-
-首次使用时在本项目目录运行一次密钥初始化：
-
-```powershell
-node .\scripts\license-keygen.js
-```
-
-私钥默认保存在 `%APPDATA%\WpsHighSchoolMathIssuer\ed25519-private.pem`，公钥写入 `js\license-public-key.js`。私钥必须离线备份并严格保密，不得发送给客户、放入安装包或提交到代码仓库；私钥丢失后将无法生成与现有插件兼容的新激活码，私钥泄露后其他人可以伪造激活码。
-
-客户把授权中心显示的机器码发来后，使用以下命令生成激活码：
-
-```powershell
-node .\scripts\license-code.js <机器码> month
-node .\scripts\license-code.js <机器码> quarter
-node .\scripts\license-code.js <机器码> year
-node .\scripts\license-code.js <机器码> permanent
-```
-
-可在最后增加起始日期，例如 `node .\scripts\license-code.js HSMABC1234567 year 2026-07-19`。生成的 `HSM2` 激活码已经绑定机器码，客户在授权中心手动粘贴激活即可。0.5.0 起只接受 Ed25519 签名的 `HSM2` 激活码，旧版激活码需要按客户当前机器码重新生成。
-
-### 图形化发码工具
-
-生成仅供发行方使用的离线 Windows 发码工具：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-license-tool.ps1
-```
-
-输出位于 `release\WpsHighSchoolMath-LicenseTool-<版本>.exe`。工具内置固定版本的 Node.js 运行时，不需要客户电脑、浏览器或服务器；界面支持输入机器码、选择月卡/季卡/年卡/永久版、设置续费起始日期、复制激活码、打开发码记录和备份私钥。
-
-发码工具不会携带私钥，只读取 `%APPDATA%\WpsHighSchoolMathIssuer\ed25519-private.pem`。启动后会比较私钥派生公钥与插件公钥，不匹配时禁止发码。发码记录保存在同目录的 `issuance-history.csv`。该工具只能由插件发行方保管，不得发送给客户。
-
-## 启动调试
-
-在本目录运行：
-
-```powershell
-npx.cmd --yes --package wpsjs wpsjs debug
-```
-
-WPS 启动后，新建或打开文字文档，点击顶部的 `高中数学` 页签进行测试。
-
-修改过 `ribbon.xml` 后需要完全退出所有 WPS Writer 窗口并重新启动，才能看到调整后的按钮。
-PPT 版修改过 `ppt/ribbon.xml` 后需要完全退出所有 WPS Presentation 窗口并重新启动。
-
-## 离线安装包
-
-生成内部测试用离线 ZIP 和 EXE：
+从根目录运行以下 PowerShell 命令。开发使用 Node.js，安装和使用插件只需 Windows 与 WPS。
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-offline.ps1 -BuildMode Internal
-```
-
-生成结果位于 `release` 目录。安装器会保留其他 WPS JS 插件，只替换本插件及其测试残留项；升级时仅清除本插件的旧版信任指纹，让 WPS 为新版文件建立正确指纹，同时将 `JsApiShowWebDebugger` 设置为 `false`，从而隐藏“打开JS调试器”按钮。安装前必须关闭全部 WPS Writer 和 WPS 演示窗口；安装器只拦截真正有可见窗口的文字或演示进程，开机后由 WPS 云服务启动的无窗口后台进程会自动结束，不会误报为打开了文档。安装或升级后首次分别打开文字版和演示版时，WPS 会询问是否信任加载项，请点击“确定”。EXE 安装失败时会显示中文原因，不再闪退，并把错误日志写入 `%LOCALAPPDATA%\WpsHighSchoolMath\Logs`。
-新版安装包会同时安装 `WpsHighSchoolMath`（文字版）和 `WpsHighSchoolMathPpt`（演示版）。构建会为两份载荷分别生成完整文件清单和宿主入口契约；安装器先在同卷临时目录复验，再一次性切换两个宿主并执行安装后校验，任一步失败会恢复旧目录、`publish.xml` 和授权缓存。解压发布 ZIP 后也可独立运行 `validate-installed.ps1` 检查当前安装。
-安装完成后会弹窗说明 14 天试用规则，并在当前用户的 Windows“已安装的应用”中注册 `WPS 高中数学工具插件`，同时创建开始菜单卸载入口。
-
-构建同时生成版本化 `checksums.sha256` 和 `release-manifest.json`。授权使用的 Ed25519 密钥与 Windows 安装包使用的 Authenticode 证书是两套独立机制：前者验证激活码，后者向 Windows 证明安装器发布者身份。`Internal` 模式在没有 Authenticode 证书时使用 `internal-test / pending-certificate`，不能冒充商业签名包。正式对外发布必须使用 `Commercial` 模式并提供可信 Authenticode 代码签名证书：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-offline.ps1 `
-  -BuildMode Commercial `
-  -CertificateThumbprint "证书指纹" `
-  -CertificateStoreLocation CurrentUser `
-  -TimestampUrl "https://时间戳服务地址"
-```
-
-证书若安装在本机证书库，将 `CertificateStoreLocation` 改为 `LocalMachine`。商业构建会预检私钥、有效期、Code Signing EKU 和可信链，并对 EXE 安装器签名、验签和确认时间戳；Writer/PPT 载荷则通过各自的完整文件清单与 SHA-256 聚合哈希校验。
-
-## 客户卸载
-
-客户必须先保存文档并关闭 WPS 文字和 WPS 演示，然后使用任一入口：
-
-1. `Windows 设置 → 应用 → 已安装的应用 → WPS 高中数学工具插件 → 卸载`。
-2. 开始菜单中的 `高中数学插件 → 卸载高中数学插件`。
-3. 发布 ZIP 内的 `uninstall.cmd`，作为系统入口不可用时的离线备用方式。
-
-卸载只删除本插件的 Writer/PPT 目录、`publish.xml` 注册、`authaddin.json` 授权缓存、系统卸载项和开始菜单快捷方式，不修改其他 WPS 插件。机器码、试用起始时间和激活状态默认保留，因此重装不会获得新的 14 天试用，也不会导致已购授权失效。
-
-正式发布门禁：
-
-```powershell
-# 内部测试包允许明确的待签名状态
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-tests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-commercial-release.ps1
-
-# 对外发布必须已有有效 Authenticode 签名
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-commercial-release.ps1 -RequireSignature
 ```
 
-## 建议测试项
+`release` 中生成离线 EXE、ZIP、SHA-256 和 JSON 发布清单。跨版本升级先并排准备两份新载荷，完成 WPS 与 Windows 注册后才清理原版本。进程异常退出后，重新运行安装包会在同一维护锁下读取事务记录并恢复。卸载进程只延迟清理已经改名的旧卸载目录。`publish.xml` 管理注册，`authaddin.json` 管理 WPS 加载项信任。用 ZIP 内的 `validate-installed.ps1` 可以复核已安装的两份载荷。
 
-1. 点击 `π`、`∈`、`⊥`、`∑`，确认符号插入到光标位置。
-2. 检查 Writer 与 PPT 是否都只有一个 `高中数学` 页签，并确认原有符号、模板、排版和函数入口都在其中。
-3. 点击 `卷头` 后应用 A4 横向两栏，确认卷头通栏、正文两栏；再测试 `选择题干`、`解答题`。
-4. 选择一段文字，测试 `删空格`、对齐、下划线、着重号和行距。
-5. 测试 A4 竖版、A4 横版两栏和添加页码。
-6. 点击 `函数编辑器`，测试多函数、折叠的坐标与显示设置、预览和插入；再点击 `授权中心`，确认同一窗格只切换页签、不出现第二个并排窗格；选中生成的图像后重新打开并测试原位更新。
-7. 在带标题和正文框的幻灯片中插入函数图，确认自动避开已有内容；再用拥挤页面确认图像仍在页内并采用最低重叠位置。
-8. 人为让编辑器入口无法就绪时，确认窗格自动隐藏并回退到原生快捷绘图。
-9. 解压发布 ZIP，运行 `validate-installed.ps1`，确认 Writer/PPT 的宿主类型、文件清单、哈希、包内版本化页面和 `publish.xml` 注册全部通过。
-10. 在 Writer/PPT 分别切换到 `授权中心`，检查复制机器码、粘贴激活码、到期状态、折叠的微信/QQ 联系方式及页内错误提示，并确认没有授权专用系统提示框。
-11. 在同一窗格内切换函数绘图和授权中心时持续检查进程与 TCP，确认没有本产品辅助进程、监听端口或新增回环连接。
+`Internal` 是内部发行通道，发布清单记录实际 Authenticode 签名状态。正式签名通道沿用脚本参数 `-BuildMode Commercial`，需要可信的代码签名证书及时间戳，可用 `validate-commercial-release.ps1 -RequireSignature` 复核。两个通道均构建同一套免费功能。
+
+### 复用入口（2026-11-24）
+
+- `js/plot-config.js`、`js/plotter.js` 和 `js/plot-analysis.js` 负责配置、表达式、坐标轴与数值分析。`js/function-plot-document.js` 复用原有 V1–V4 元数据。
+- `js/taskpane.js` 复用 WPS 的 `CreateTaskPane` 和 `PluginStorage`，就绪凭据按宿主、页面和版本隔离。`js/plot-library.js` 沿用 V1/V2 备份格式。收藏区直接提示实际存储期限。[WPS PluginStorage 文档](https://open.wps.cn/documents/app-integration-dev/wps365/client/wpsoffice/jsapi/addin-api/PluginStorage/obj)
+- 两个宿主同步加载相应 Ribbon。打包只包含项目自有前端和系统脚本，复用 Windows IExpress、PowerShell 和 SHA-256。发布校验逐页解析本地引用。
+- 文档操作复用 WPS 的 Range 和 Shape 接口。文字在所选正文或页眉的 Range 内设置符号字体，演示更新先恢复旋转和相对层级，再移除旧图。2026-11-24 在 WPS 12.1.0.29690 复核。[Range.Duplicate](https://learn.microsoft.com/en-us/office/vba/api/word.range.duplicate) · [Shape.ZOrder](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.shape.zorder)
+- 安装恢复使用同卷目录移动、原子文件替换和既有维护锁。`scripts/addin-maintenance.ps1` 供两个入口共用。载荷聚合摘要使用序数排序，旧清单按已逐项核验的原顺序读取。[Directory.Move](https://learn.microsoft.com/en-us/dotnet/api/system.io.directory.move)
+- 版本验收和测试环境见[0.9.1 修复记录](../specs/free-edition-0.9.0/verification-0.9.1.md)和[0.9.0 免费版基线](../specs/free-edition-0.9.0/implementation.md)。
+
+实机能力探针复用 Windows 进程快照读取父子关系和程序名，并以有限查询权限读取候选程序路径。采样间隔上限为 100 毫秒，超限会记录间隔和丢样数。此探针仅用于开发验收。[Microsoft QueryFullProcessImageNameW 文档](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamew)

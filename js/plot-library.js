@@ -155,10 +155,13 @@
   function forWindow(window) {
     var storage = null;
     try { var app = window.Application || window.wps; storage = app && app.PluginStorage; } catch (_) {}
-    if (!storage || !storage.getItem || !storage.setItem) {
+    var sessionOnly = Boolean(storage && storage.getItem && storage.setItem);
+    if (!sessionOnly) {
       try { storage = window.localStorage; } catch (_) {}
     }
-    return create(storage);
+    var library = create(storage);
+    library.sessionOnly = sessionOnly;
+    return library;
   }
 
   return { KEY: KEY, MAX_ITEMS: MAX_ITEMS, create: create, forWindow: forWindow };

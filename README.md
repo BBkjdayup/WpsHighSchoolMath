@@ -8,9 +8,9 @@
 
 数学符号 · 函数绘图 · 试卷模板 · 文档排版
 
-**Windows**　｜　**WPS 文字 / 演示**　｜　**本地 SVG 绘图**　｜　**v0.8.1**　｜　[**MIT License**](LICENSE)
+**Windows**　｜　**WPS 文字 / 演示**　｜　**本地 SVG 绘图**　｜　**v0.9.1 完全免费版**　｜　[**MIT License**](LICENSE)
 
-[看功能](#features) · [看绘图示例](#gallery) · [开始使用](#start) · [运行源码](#development) · [参与贡献](CONTRIBUTING.md)
+[下载离线安装包](https://github.com/BBkjdayup/WpsHighSchoolMath/releases/latest) · [看功能](#features) · [看绘图示例](#gallery) · [开始使用](#start) · [运行源码](#development) · [参与贡献](CONTRIBUTING.md)
 
 </div>
 
@@ -20,7 +20,7 @@
 
 > **当前版本说明**
 >
-> 本仓库是现有桌面插件的源码，保留 14 天试用和离线激活机制；源码公开不会自动取消安装包的授权限制。0.8.1 已通过自动化与浏览器检查，尚需真实 WPS 验收。当前构建为未签名内部测试包。详见[版本与许可说明](#status)。
+> 0.9.1 可直接离线使用文字和演示的全部功能，无需账号或激活。升级前，先在旧版编辑器导出收藏备份，再关闭 WPS。
 
 <a id="features"></a>
 ## 一眼看懂：它能做什么
@@ -46,7 +46,7 @@
   </tr>
 </table>
 
-以上为 **0.8.1 共享工具窗格页面在浏览器中的真实截图**，不是 WPS 文档插入效果图。上方设置独立滚动，底部保留「更新预览」和「插入新图像／更新所选图像」。
+图中为 0.9.0 绘图页的浏览器截图。上方设置独立滚动，底部可更新预览、插入新图或更新已载入的图像。
 
 <a id="gallery"></a>
 ## 用图像，讲清数学
@@ -113,7 +113,7 @@
 ### 安装前需要什么
 
 - **Windows + WPS 桌面版**。目前提供 WPS 文字和 WPS 演示两个加载项；不支持 WPS 表格、网页版或移动端。
-- 先保存文档并关闭 WPS 文字、演示窗口，再运行自行构建的离线安装包。
+- 从旧版升级时，先在文字和演示各自的「我的绘图收藏 → 迁移备份与撤销」导出备份文字。保存文档并关闭 WPS，再运行离线 EXE，或解压完整 ZIP 并双击 `install.cmd`。
 - 安装完成后打开 WPS，按提示信任本加载项，在功能区找到「高中数学」。
 
 尚未建立覆盖多个 WPS 版本的兼容性承诺。已有环境记录与实机验收要求见 [HANDOFF.md](HANDOFF.md)。安装、升级、卸载及排错步骤见[开发与发行说明](docs/DEVELOPMENT.md)。
@@ -128,13 +128,13 @@
 下载或克隆源码后，用现代桌面浏览器打开 `ui/function-plot.html`，即可输入表达式并查看图像。浏览器预览不能插入 WPS，收藏存储也与 WPS 环境分开。
 
 ```powershell
-git clone https://github.com/amparolazar557-creator/WpsHighSchoolMath.git
+git clone https://github.com/BBkjdayup/WpsHighSchoolMath.git
 cd WpsHighSchoolMath
 ```
 
 ### 在 Windows 上构建内部测试包
 
-在**项目根目录**打开终端，准备 Node.js（当前验证版本为 `24.14.1`）和 Windows PowerShell 5.1：
+在**项目根目录**打开终端，准备 Node.js（当前验证版本为 `24.21.0`）和 Windows PowerShell 5.1：
 
 ```powershell
 # 构建文字与演示两份离线加载项
@@ -144,14 +144,14 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-tests.ps1
 ```
 
-生成的 EXE、ZIP、校验和与发布清单位于 `release/`。普通插件构建不需要发行私钥；发码工具是独立的发行方工具，相关说明见[开发文档](docs/DEVELOPMENT.md)。
+生成的 EXE、ZIP、校验和与发布清单位于 `release/`。安装、卸载和签名发行步骤见[开发文档](docs/DEVELOPMENT.md)。
 
 ### 项目结构
 
 ```text
 WpsHighSchoolMath/
-├─ js/          绘图引擎、数学分析、文档操作、符号与授权
-├─ ui/          绘图与授权页面，共享工具窗格
+├─ js/          绘图引擎、数学分析、文档操作、符号与宿主适配
+├─ ui/          离线绘图窗格、收藏和数值分析界面
 ├─ ppt/         WPS 演示版入口
 ├─ scripts/     离线构建、安装卸载、校验与发行工具
 ├─ tests/       数学逻辑、宿主行为与安装回归
@@ -167,28 +167,26 @@ WpsHighSchoolMath/
 
 | 版本 | 已完成的改进 |
 | :--- | :--- |
+| **0.9.1** | 安装中断恢复、保护后台文档与其他插件、修复卸载后重装、绘图交点、课件图层和页眉字体 |
+| **0.9.0** | 全功能免费，修复安装回滚、相邻或跨文档图像误替换、去空格格式损失和坐标刻度重名 |
 | **0.8.1** | 独立底部操作栏，长表单滚动时按钮与提示始终可见 |
 | **0.8.0** | 数值交点、零点与有限斜率切线；图片和收藏保存分析设置 |
 | **0.7.0** | a、b、c 参数滑块，横竖辅助线，绘图收藏与备份 |
 | **0.6.0** | 独立定义域、开闭端点、曲线样式、点标注与黑白打印 |
 
-0.8.1 的验证记录包含 **17 项 Node 测试、12 项 PowerShell 测试**及语法、编码、结构检查；浏览器完成 60 次布局与点击检查。见[验证记录](specs/refactor-upgrade-2026-09/fix-actions-0.8.1.md)。这些结果不代表已完成当前版本的真实 Writer / Presentation 插入、保存重开与更新验收。
+本版本的验证范围和签名状态见[0.9.1 修复验收](specs/free-edition-0.9.0/verification-0.9.1.md)。
 
-**使用前请了解：**
-
-- 现有安装包保留 **14 天全功能试用**；到期后仅 Writer 试卷模板保持可用，其余功能需要离线激活。
-- 重装默认保留机器码、试用开始时间与激活状态；生成自己的发行版本需使用自己的签名密钥，不能生成原发行方的有效授权。
 - 收藏请主动导出备份；不同宿主、电脑或升级环境之间，不保证自动共享或永久保留。
 - 分析结果为数值近似；当前不提供符号求导、竖直切线、单侧端点切线或完整几何作图。
 - 当前内部安装包尚未取得可信 Authenticode 签名，请勿将其描述为已签名的正式商业版本。
 
-**本项目源码采用 [MIT License](LICENSE)**，允许使用、修改和再发布，须保留版权与许可声明。该许可同样适用于源码中的授权模块；安装包当前的试用机制不限制 MIT 赋予的源码使用与修改权利。第三方组件保留各自许可，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目是第三方加载项，与 WPS 官方不存在隶属关系。
+**本项目源码采用 [MIT License](LICENSE)**，允许使用、修改和再发布，须保留版权与许可声明。组件和名称说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。本项目是第三方加载项，与 WPS 官方不存在隶属关系。
 
 ## 一起完善它
 
 欢迎提供可复现的问题、教学场景和改进建议。报告绘图问题时，请附上表达式、坐标范围、期望结果以及 WPS / Windows 版本；截图请使用不含学生信息的示例文档。
 
-提交前请阅读 [贡献指南](CONTRIBUTING.md) 和 [安全说明](SECURITY.md)。不要上传授权私钥、真实激活码、发码记录或个人文档。
+提交前请阅读 [贡献指南](CONTRIBUTING.md) 和 [安全说明](SECURITY.md)。请仅提交脱敏的示例文档。
 
 ---
 

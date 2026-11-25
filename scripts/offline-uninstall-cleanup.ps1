@@ -5,9 +5,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$expectedRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "Programs\WpsHighSchoolMath"))
+$programsRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "Programs"))
 $resolvedTarget = [IO.Path]::GetFullPath($TargetRoot)
-if (-not $resolvedTarget.Equals($expectedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+if ([IO.Path]::GetDirectoryName($resolvedTarget) -ne $programsRoot -or
+    [IO.Path]::GetFileName($resolvedTarget) -notmatch '^WpsHighSchoolMath-Uninstalling-[0-9a-f]{32}$' -or
+    $resolvedTarget -ne [IO.Path]::GetFullPath($PSScriptRoot) -or
+    ((Get-Item -LiteralPath $resolvedTarget -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
     throw "Refusing to remove an unexpected uninstall directory: $resolvedTarget"
 }
 

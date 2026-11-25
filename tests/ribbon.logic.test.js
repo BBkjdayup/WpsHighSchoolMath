@@ -12,6 +12,7 @@ function readProjectFile(filePath) {
 function createContext(hasDocument = true, options = {}) {
   const calls = [];
   const documentRanges = [];
+  const symbolRanges = [];
   const pageSetup = {
     TextColumns: {
       SetCount(count) {
@@ -95,7 +96,17 @@ function createContext(hasDocument = true, options = {}) {
   };
   Object.defineProperty(selection, "Range", {
     get() {
-      return { Start: selection.Start, End: selection.End };
+      return {
+        Start: selection.Start, End: selection.End,
+        get Duplicate() {
+          const range = {
+            End: selection.End, StoryType: options.storyType || 1, Font: {},
+            SetRange(start, end) { this.Start = start; this.End = end; }
+          };
+          symbolRanges.push(range);
+          return range;
+        }
+      };
     }
   });
   const bookmarks = {};
@@ -146,9 +157,11 @@ function createContext(hasDocument = true, options = {}) {
     Selection: selection,
     PluginStorage: {
       getItem(key) {
+        if (/^hsmath_(?:trial|license|machine)/.test(key)) { calls.push(["legacy-read", key]); }
         return storage[key] || "";
       },
       setItem(key, value) {
+        if (/^hsmath_(?:trial|license|machine)/.test(key)) { calls.push(["legacy-write", key]); }
         storage[key] = value;
       }
     },
@@ -186,7 +199,6 @@ function createContext(hasDocument = true, options = {}) {
   vm.createContext(context);
   vm.runInContext(readProjectFile("js/symbols.js"), context);
   vm.runInContext(readProjectFile("js/taskpane.js"), context);
-  vm.runInContext(readProjectFile("js/license.js"), context);
   vm.runInContext(readProjectFile("js/ribbon.js"), context);
   return {
     context,
@@ -196,16 +208,20 @@ function createContext(hasDocument = true, options = {}) {
     headerPageSetup,
     pageNumbers,
     documentRanges,
+    symbolRanges,
     documentSections
   };
 }
 
 {
-  const { context, calls, selection, documentRanges } = createContext();
+  const { context, calls, selection, symbolRanges, documentRanges } = createContext(true, { storyType: 7 });
   context.OnAction({ Id: "sym_pi" });
   assert.deepStrictEqual(calls, [["TypeText", "π"], ["SetRange", 1, 1]]);
-  assert.equal(documentRanges[0].Font.Name, "Cambria Math");
-  assert.equal(documentRanges[0].Font.NameOther, "Cambria Math");
+  assert.equal(documentRanges.length, 0);
+  assert.equal(symbolRanges[0].StoryType, 7);
+  assert.deepEqual([symbolRanges[0].Start, symbolRanges[0].End], [0, 1]);
+  assert.equal(symbolRanges[0].Font.Name, "Cambria Math");
+  assert.equal(symbolRanges[0].Font.NameOther, "Cambria Math");
   assert.equal(selection.Font.Name, "宋体");
   assert.equal(selection.Font.NameAscii, "Times New Roman");
 }
@@ -242,9 +258,21 @@ function createContext(hasDocument = true, options = {}) {
 
 {
   const { context, selection } = createContext();
-  selection.Text = " A B\tC　D\r";
-  context.OnAction({ Id: "remove_spaces" });
-  assert.equal(selection.Text, "ABCD");
+  let chars = Array.from(" A  B\tC　D\r\u0001E\r", (ch, i) => ({ ch, style: i }));
+  const expected = chars.filter(item => !/[ \t\u3000]/.test(item.ch));
+  function range(start, end) {
+    return {
+      Start: start, End: end,
+      get Text() { return chars.slice(this.Start, this.End).map(item => item.ch).join(""); },
+      get Duplicate() { return range(this.Start, this.End); },
+      SetRange(a, b) { this.Start = a; this.End = b; },
+      Delete() { chars.splice(this.Start, this.End - this.Start); }
+    };
+  }
+  context.window.Application.Selection = { Range: range(0, chars.length) };
+  assert.equal(context.OnAction({ Id: "remove_spaces" }), true);
+  assert.deepStrictEqual(chars, expected);
+  assert(chars.every((item, index) => item === expected[index]), "untouched document runs retain their formatting and identity");
 }
 
 {
@@ -295,7 +323,7 @@ function createContext(hasDocument = true, options = {}) {
 }
 
 {
-  const { context, calls } = createContext(true, { documentUrl: "file:///C:/plugin/index.html" });
+  const { context, calls } = createContext(true, { documentUrl: "file:///C:/WPS%20Math/%E6%95%B0%E5%AD%A6/index.html" });
   context.MathTaskPanes.openPackaged = function (options) {
     calls.push(["openPackaged", options]);
     return true;
@@ -304,9 +332,8 @@ function createContext(hasDocument = true, options = {}) {
   const localEditorCall = calls.find((call) => call[0] === "openPackaged");
   assert(localEditorCall);
   assert.equal(localEditorCall[1].role, "writer");
-  assert.equal(localEditorCall[1].name, "tool-center");
-  assert.equal(localEditorCall[1].view, "function-plot");
-  assert.equal(localEditorCall[1].pluginBaseUrl, "file:///C:/plugin");
+  assert.equal(localEditorCall[1].name, "function-plot");
+  assert.equal(localEditorCall[1].pluginBaseUrl, "file:///C:/WPS%20Math/%E6%95%B0%E5%AD%A6");
   assert.equal(localEditorCall[1].readyTimeout, 5000);
   assert(!readProjectFile("js/ribbon.js").includes("38927"));
   assert(!readProjectFile("js/ribbon-ppt.js").includes("38928"));
@@ -319,84 +346,29 @@ function createContext(hasDocument = true, options = {}) {
   assert.deepStrictEqual(calls, []);
 }
 
-{
-  const { context, calls } = createContext(true, {
-    storage: {
-      hsmath_machine_id_v1: "HSMABC1234567",
-      hsmath_trial_started_v1: "2026-01-01"
-    }
-  });
-  context.OnAction({ Id: "exam_header" });
-  assert(calls.some((call) => call[0] === "TypeText"));
-  assert(!calls.some((call) => call[0] === "CreateTaskPane" && call[1].includes("/ui/license.html")));
-}
-
-{
-  const { context, calls } = createContext(true, {
-    storage: {
-      hsmath_machine_id_v1: "HSMABC1234567",
-      hsmath_trial_started_v1: "2026-01-01"
-    }
-  });
-  context.MathTaskPanes.openPackaged = function (options) {
-    calls.push(["openPackaged", options]);
-    return true;
-  };
-  context.OnAction({ Id: "sym_pi" });
-  const open = calls.find((call) => call[0] === "openPackaged");
-  assert(open);
-  assert.equal(open[1].role, "writer");
-  assert.equal(open[1].name, "tool-center");
-  assert.equal(open[1].view, "license");
-  assert(!calls.some((call) => call[0] === "alert"));
-  assert(!calls.some((call) => call[0] === "TypeText"));
-}
-
-{
-  const { context, calls } = createContext(true, {
-    storage: {
-      hsmath_machine_id_v1: "HSMABC1234567",
-      hsmath_trial_started_v1: "2026-01-01"
-    }
-  });
-  context.MathTaskPanes.openPackaged = function (options) {
-    calls.push(["openPackaged", options]);
-    return true;
-  };
-  context.OnAction({ Id: "function_plot" });
-  const open = calls.find((call) => call[0] === "openPackaged");
-  assert(open);
-  assert.equal(open[1].name, "tool-center");
-  assert.equal(open[1].view, "license");
-  assert(!calls.some((call) => call[0] === "alert"));
-  assert(!calls.some((call) => call[0] === "CreateTaskPane" && call[1].includes("hsmMode=function-plot")));
-}
-
-{
-  const { context, calls } = createContext(true, {
-    storage: {
-      hsmath_machine_id_v1: "HSMABC1234567",
-      hsmath_trial_started_v1: "2026-01-01"
-    }
-  });
-  context.MathTaskPanes.openPackaged = function (options) {
-    calls.push(["openPackaged", options]);
-    return true;
-  };
-  context.OnAction({ Id: "authorization_center" });
-  const open = calls.find((call) => call[0] === "openPackaged");
-  assert(open);
-  assert.equal(open[1].role, "writer");
-  assert.equal(open[1].name, "tool-center");
-  assert.equal(open[1].view, "license");
-  assert(!calls.some((call) => call[0] === "alert"));
+for (const storage of [
+  {}, { hsmath_trial_started_v1: new Date().toISOString().slice(0, 10) },
+  { hsmath_trial_started_v1: "2000-01-01" },
+  { hsmath_machine_id_v1: "HSMTEST000001", hsmath_license_v1: "previously-purchased-fixture" }
+]) {
+  const { context, calls } = createContext(true, { storage });
+  const commands = [];
+  context.MathTaskPanes.openPackaged = options => { commands.push(options.name); return true; };
+  assert.equal(context.OnAddinLoad({}), true);
+  assert.equal(context.OnAction({ Id: "sym_pi" }), true);
+  assert(calls.some(call => call[0] === "TypeText" && call[1] === "π"));
+  assert.equal(context.OnAction({ Id: "choice_stem" }), true);
+  assert.equal(context.OnAction({ Id: "align_center" }), true);
+  assert.equal(context.OnAction({ Id: "function_plot" }), true);
+  assert.deepStrictEqual(commands, ["function-plot"]);
+  assert(!("authorization_center" in context.COMMANDS));
+  assert(!calls.some(call => call[0] === "legacy-read" || call[0] === "legacy-write"));
 }
 
 {
   const { context, calls } = createContext(false);
   context.OnAction({ Id: "sym_angle" });
   assert(calls.some((call) => call[0] === "alert"));
-  assert.equal(context.OnGetEnabled({ Id: "authorization_center" }), true);
   assert.equal(context.OnGetEnabled({ Id: "sym_angle" }), false);
 }
 
@@ -490,51 +462,9 @@ for (const id of paneElementIds) {
 assert(plotDocumentScript.includes("InlineShapes.AddPicture"));
 assert(plotDocumentScript.includes("Shapes.AddPicture"));
 assert(plotPaneHtml.includes("../js/ppt-api.js"));
-assert(plotPaneHtml.includes("../js/license.js"));
+assert(!plotPaneHtml.includes("../js/license.js"));
 assert(plotPaneHtml.includes("../js/function-plot-document.js"));
-const licenseHtml = readProjectFile("ui/license.html");
-const licenseEntry = readProjectFile("ui/license-entry.js");
-const licenseScript = readProjectFile("ui/license-ui.js");
-const licenseCss = readProjectFile("ui/license.css");
-assert(licenseHtml.includes("license-entry.js"));
-assert(licenseEntry.includes('id="wechatQr"'));
-assert(licenseEntry.includes("../assets/wechat-qr.jpg"));
-assert(licenseEntry.includes('id="qqNumber"'));
-assert(licenseEntry.includes('id="machineCode"'));
-assert(licenseEntry.includes('id="statusBadge"'));
-assert(licenseEntry.includes('id="expiryTime"'));
-assert(licenseEntry.includes('id="remainingTime"'));
-assert(licenseEntry.includes('id="activateButton"'));
-assert(licenseEntry.includes('id="pasteActivationCode"'));
-assert(licenseEntry.includes('id="copyQqNumber"'));
-assert(licenseEntry.includes('class="license-disclosure activation-disclosure"'));
-assert(licenseEntry.includes('class="license-disclosure contact-disclosure"'));
-assert.equal((licenseEntry.match(/class="disclosure-arrow"/g) || []).length, 2);
-assert.equal((licenseEntry.match(/class="disclosure-chevron"/g) || []).length, 2);
-assert(licenseEntry.includes('月卡 / 季卡 / 年卡 / 永久版</small><span class="disclosure-arrow"'));
-assert(licenseEntry.includes('微信 / QQ 联系方式</small><span class="disclosure-arrow"'));
-assert(!/<details[^>]*\sopen(?:\s|=|>)/.test(licenseEntry));
-assert(licenseScript.includes("MathLicense.getContact"));
-assert(licenseScript.includes("licenseStatus.expiresText"));
-assert(licenseScript.includes("licenseStatus.remainingText"));
-assert(licenseScript.includes("navigator.clipboard.readText"));
-assert(!/\balert\s*\(/.test(readProjectFile("js/license.js")));
-assert(!/\bprompt\s*\(/.test(readProjectFile("js/license.js")));
-assert(!readProjectFile("js/license.js").includes("InputBox"));
-assert(licenseCss.includes(".wechat-qr"));
-assert(licenseCss.includes("grid-template-columns: minmax(0, 1fr) auto 20px"));
-assert(licenseCss.includes("align-self: center"));
-assert(licenseCss.includes(".disclosure-chevron"));
-assert(!licenseCss.includes(".activation-disclosure .disclosure-arrow"));
-const toolCenterHtml = readProjectFile("ui/tool-center.html");
-const toolCenterScript = readProjectFile("ui/tool-center.js");
-assert(toolCenterHtml.includes('data-view="function-plot"'));
-assert(toolCenterHtml.includes('data-view="license"'));
-assert(toolCenterHtml.includes('id="functionPlotRoot"'));
-assert(toolCenterHtml.includes('id="licenseRoot"'));
-assert(!toolCenterHtml.includes("tool-center-brand"));
-assert(!toolCenterHtml.includes("离线可用"));
-assert(toolCenterScript.includes('signalReady(PANE_NAME)'));
+assert(plotPaneScript.includes('signalReady("function-plot")'));
 assert(plotPaneScript.includes("Math.random()"));
 assert(plotDocumentScript.includes("shape.Height"));
 assert(!plotPaneHtml.includes("<textarea"));

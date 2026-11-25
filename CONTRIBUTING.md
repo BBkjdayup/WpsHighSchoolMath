@@ -29,5 +29,5 @@ powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-te
 - 插件保持离线运行，不引入业务服务器或本地页面服务。
 - 使用安全表达式解析器，不执行用户表达式中的 JavaScript。
 - 插入新图片并验证成功后，才能移除旧图；保留旧版绘图配置的读取能力。
-- 不更换现有发行公钥，不上传私钥或真实发码记录。
+- 两个宿主使用一致的免费功能入口，发布清单须记录安装器实际签名状态。
 - 第三方组件需保留许可；提交的项目代码采用根目录 LICENSE 中的 MIT 许可。

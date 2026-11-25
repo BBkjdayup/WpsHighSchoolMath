@@ -10,7 +10,7 @@ $stalePluginNames = @($pluginName, "${pluginName}E2E3", $pptPluginName)
 $jsAddonsPath = Join-Path $env:APPDATA "kingsoft\wps\jsaddons"
 $publishPath = Join-Path $jsAddonsPath "publish.xml"
 $authorizationPath = Join-Path $jsAddonsPath "authaddin.json"
-$licenseStatePath = Join-Path $env:APPDATA "WpsHighSchoolMath"
+$legacyProductPath = Join-Path $env:APPDATA "WpsHighSchoolMath"
 $registrationHelper = Join-Path $PSScriptRoot "uninstall-registration.ps1"
 
 if (-not (Test-Path -LiteralPath $registrationHelper -PathType Leaf)) {
@@ -39,40 +39,13 @@ function Confirm-HsmUninstall {
     if ($Quiet) { return $true }
     Add-Type -AssemblyName System.Windows.Forms
     $choice = [Windows.Forms.MessageBox]::Show(
-        "将卸载 WPS 文字版和演示版中的高中数学插件。`r`n`r`n机器码、试用记录和激活状态将保留，重新安装后可以继续使用原授权。`r`n`r`n是否继续？",
+        "将卸载 WPS 文字版和演示版中的高中数学插件。`r`n`r`n已插入文档和课件的图像仍可正常打开。`r`n`r`n是否继续？",
         "卸载高中数学插件",
         [Windows.Forms.MessageBoxButtons]::YesNo,
         [Windows.Forms.MessageBoxIcon]::Question,
         [Windows.Forms.MessageBoxDefaultButton]::Button2
     )
     return $choice -eq [Windows.Forms.DialogResult]::Yes
-}
-
-function Write-Utf8TextAtomic {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [AllowEmptyString()][string]$Content
-    )
-    $directory = Split-Path -Parent $Path
-    New-Item -ItemType Directory -Path $directory -Force | Out-Null
-    $temporaryPath = Join-Path $directory ("." + [IO.Path]::GetFileName($Path) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
-    $replaceBackupPath = $temporaryPath + ".bak"
-    try {
-        [IO.File]::WriteAllText($temporaryPath, $Content, (New-Object Text.UTF8Encoding($false)))
-        if (Test-Path -LiteralPath $Path -PathType Leaf) {
-            [IO.File]::Replace($temporaryPath, $Path, $replaceBackupPath)
-            Remove-Item -LiteralPath $replaceBackupPath -Force
-        } else {
-            [IO.File]::Move($temporaryPath, $Path)
-        }
-    } finally {
-        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
-            Remove-Item -LiteralPath $temporaryPath -Force
-        }
-        if (Test-Path -LiteralPath $replaceBackupPath -PathType Leaf) {
-            Remove-Item -LiteralPath $replaceBackupPath -Force
-        }
-    }
 }
 
 function Save-HsmXmlDocument {
@@ -128,45 +101,12 @@ function Stop-LocalEditorHosts {
     }
 }
 
-function Test-WpsProcessHasUserWindow {
-    param([Parameter(Mandatory = $true)][object]$Process)
-
-    try {
-        if ($Process.PSObject.Methods.Name -contains "Refresh") {
-            $Process.Refresh()
-        }
-        return [int64]$Process.MainWindowHandle -ne 0
-    } catch {
-        return $true
-    }
-}
-
-function Stop-WpsBackgroundHosts {
-    param([object[]]$Processes)
-
-    foreach ($process in @($Processes)) {
-        if (Test-WpsProcessHasUserWindow -Process $process) { continue }
-        try {
-            $processId = [int]$process.Id
-            Stop-Process -Id $processId -Force -ErrorAction Stop
-            Wait-Process -Id $processId -Timeout 5 -ErrorAction SilentlyContinue
-        } catch { }
-    }
-}
-
 function Remove-HsmPluginDirectories {
     param([string]$JsAddonsPath, [string[]]$PluginNames)
 
-    if (-not (Test-Path -LiteralPath $JsAddonsPath -PathType Container)) { return }
-    $resolvedRoot = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $JsAddonsPath).Path).TrimEnd("\") + "\"
-    foreach ($name in $PluginNames) {
-        foreach ($directory in @(Get-ChildItem -LiteralPath $JsAddonsPath -Directory -Filter "${name}_*" -ErrorAction SilentlyContinue)) {
-            $resolvedDirectory = [IO.Path]::GetFullPath($directory.FullName)
-            if (-not $resolvedDirectory.StartsWith($resolvedRoot, [StringComparison]::OrdinalIgnoreCase)) {
-                throw "Refusing to remove a directory outside the WPS jsaddons directory."
-            }
-            Remove-Item -LiteralPath $resolvedDirectory -Recurse -Force
-        }
+    $publish = Join-Path $JsAddonsPath "publish.xml"
+    foreach ($directory in Get-HsmOwnedPluginDirectories $JsAddonsPath $PluginNames $publish) {
+        Remove-HsmSafeDirectory $directory.FullName $JsAddonsPath
     }
 }
 
@@ -226,33 +166,32 @@ function Start-HsmUninstallSelfCleanup {
     param([object]$Paths)
 
     if (-not $Paths -or -not (Test-Path -LiteralPath $Paths.CleanupScriptPath -PathType Leaf)) { return }
+    $retired = Move-HsmUninstallRootAside $Paths.Root
+    $cleaner = Join-Path $retired "uninstall-cleanup.ps1"
     $powershellPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
-    $arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$($Paths.CleanupScriptPath)`" -TargetRoot `"$($Paths.Root)`" -ParentProcessId $PID"
+    $arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$cleaner`" -TargetRoot `"$retired`" -ParentProcessId $PID"
     Start-Process -FilePath $powershellPath -ArgumentList $arguments -WindowStyle Hidden | Out-Null
 }
 
 function Invoke-HsmUninstall {
-    $wpsProcesses = @(Get-Process -Name "wps", "wpp" -ErrorAction SilentlyContinue)
-    $openWpsProcesses = @($wpsProcesses | Where-Object { Test-WpsProcessHasUserWindow -Process $_ })
-    if ($openWpsProcesses.Count -gt 0) {
-        throw "请先保存文档并完全退出 WPS 文字和 WPS 演示，然后重新卸载。"
-    }
-    Stop-WpsBackgroundHosts -Processes $wpsProcesses
+    Assert-HsmWpsClosed
     if (-not (Confirm-HsmUninstall)) { return $false }
 
-    Stop-LocalEditorHosts -AllowedRoots @($jsAddonsPath, $licenseStatePath)
+    $ownedRoots = @(Get-HsmOwnedPluginDirectories $jsAddonsPath $stalePluginNames $publishPath | ForEach-Object FullName)
+    Stop-LocalEditorHosts -AllowedRoots ($ownedRoots + $legacyProductPath)
+    Repair-HsmPendingTransactions -Root $jsAddonsPath -PluginNames $stalePluginNames -Removing
     Remove-HsmPluginDirectories -JsAddonsPath $jsAddonsPath -PluginNames @($pluginName, $pptPluginName)
     Remove-HsmPublishEntries -Path $publishPath -PluginNames $stalePluginNames
     Remove-HsmAuthorizationEntries -Path $authorizationPath -PluginNames $stalePluginNames
     $uninstallPaths = Unregister-HsmUninstaller
 
-    Show-HsmMessage -Text "高中数学插件已卸载。`r`n`r`n机器码、试用记录和激活状态已保留，重新安装后可以继续使用原授权。" -Icon "Information"
     Start-HsmUninstallSelfCleanup -Paths $uninstallPaths
+    Show-HsmMessage -Text "高中数学插件已卸载。`r`n`r`n文档和课件中的图像仍可使用。" -Icon "Information"
     return $true
 }
 
 try {
-    [void](Invoke-HsmUninstall)
+    [void](Invoke-HsmMaintenance { Invoke-HsmUninstall })
 } catch {
     Show-HsmMessage -Text $_.Exception.Message -Title "卸载失败" -Icon "Error"
     Write-Error $_

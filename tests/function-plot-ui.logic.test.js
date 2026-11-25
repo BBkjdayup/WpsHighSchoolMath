@@ -8,7 +8,8 @@ const panelSource = fs.readFileSync(path.join(projectRoot, "ui", "function-plot.
 
 const nodes = {
   editModeBadge: { textContent: "", className: "" },
-  insertButton: { textContent: "" }
+  insertButton: { textContent: "" },
+  status: {}
 };
 let selectedPlot = { host: "presentation", config: { expressions: ["x^2"] } };
 let intervalCallback = null;
@@ -27,6 +28,7 @@ const document = {
 const window = {
   Application: { ActivePresentation: {} },
   MathFunctionDocument: {
+    samePlot(a, b) { return a === b; },
     getSelectedPlot() {
       return selectedPlot;
     }
@@ -41,7 +43,7 @@ const window = {
   clearInterval(id) { stopped = id; }
 };
 
-vm.runInNewContext(panelSource, {
+const context = vm.createContext({
   window,
   document,
   FunctionPlotter: {},
@@ -49,10 +51,14 @@ vm.runInNewContext(panelSource, {
   Math,
   console
 });
+vm.runInContext(panelSource, context);
 
 assert.equal(typeof window.MathFunctionPlotPanel.synchronizeSelection, "function");
 assert.equal(typeof window.MathFunctionPlotPanel.startSelectionMonitor, "function");
 
+assert.equal(window.MathFunctionPlotPanel.synchronizeSelection(), false, "a new selection never silently binds an edit");
+context.applyConfig = () => true;
+assert(context.loadSelectedPlot(true));
 window.MathFunctionPlotPanel.startSelectionMonitor();
 assert.equal(intervalDelay, 250);
 assert.equal(typeof intervalCallback, "function");
@@ -70,12 +76,15 @@ assert.equal(nodes.insertButton.textContent, "插入新图像");
 
 selectedPlot = { host: "writer", config: { expressions: ["sin(x)"] } };
 intervalCallback();
-assert.equal(window.MathFunctionPlotPanel.isEditingSelectedPlot(), true);
+assert.equal(nodes.insertButton.textContent, "重新载入所选图像");
+const oldTarget = context.loadedTarget;
+context.insertCurrentPlot();
+assert.notEqual(context.loadedTarget, oldTarget);
+assert.equal(context.loadedTarget, selectedPlot);
+intervalCallback();
 assert.equal(nodes.insertButton.textContent, "更新所选图像");
-
 window.MathFunctionPlotPanel.setVisible(false);
 assert.equal(stopped, 17);
 window.MathFunctionPlotPanel.setVisible(true);
 assert.equal(window.MathFunctionPlotPanel.isEditingSelectedPlot(), true);
-
-console.log("function plot selection-mode synchronization tests passed");
+console.log("plot target binding, selection changes and explicit reload passed");

@@ -2,8 +2,8 @@
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $uninstallerPath = Join-Path $projectRoot "scripts\offline-uninstall.ps1"
+. (Join-Path $projectRoot "scripts\addin-maintenance.ps1")
 $requiredFunctions = @(
-    "Write-Utf8TextAtomic",
     "Save-HsmXmlDocument",
     "Remove-HsmPluginDirectories",
     "Remove-HsmPublishEntries",
@@ -41,9 +41,13 @@ try {
     Write-TestFile (Join-Path $jsAddonsPath "WpsHighSchoolMath_0.5.1\main.js") "writer"
     Write-TestFile (Join-Path $jsAddonsPath "WpsHighSchoolMathPpt_0.5.1\main.js") "ppt"
     Write-TestFile (Join-Path $jsAddonsPath "OtherPlugin_1.0\main.js") "other"
+    Write-TestFile (Join-Path $jsAddonsPath "WpsHighSchoolMath_Notes_1.0.0\manifest.xml") "<JsPlugin><Name>WpsHighSchoolMath_Notes</Name></JsPlugin>"
+    Write-TestFile (Join-Path $jsAddonsPath "WpsHighSchoolMath_Notes_1.0.0\notes.txt") "independent plugin data"
+    Write-TestFile (Join-Path $jsAddonsPath "WpsHighSchoolMath_8.8.8\manifest.xml") "<JsPlugin><Name>OtherPlugin</Name></JsPlugin>"
     Write-TestFile (Join-Path $licenseStatePath "machine-id.txt") "HSMABC1234567"
     Write-TestFile $publishPath @'
 <jsplugins>
+  <jsplugin name="WpsHighSchoolMath_Notes" type="wps" url="WpsHighSchoolMath_Notes_1.0.0" version="1.0.0" />
   <jsplugin name="OtherPlugin" type="wps" url="OtherPlugin_1.0" version="1.0" />
   <jsplugin name="WpsHighSchoolMath" type="wps" url="WpsHighSchoolMath_0.5.1" version="0.5.1" />
   <jsplugin name="WpsHighSchoolMathPpt" type="wpp" url="WpsHighSchoolMathPpt_0.5.1" version="0.5.1" />
@@ -72,7 +76,14 @@ try {
     if (Test-Path -LiteralPath (Join-Path $jsAddonsPath "WpsHighSchoolMathPpt_0.5.1")) { throw "Presentation payload was not removed." }
     if (-not (Test-Path -LiteralPath (Join-Path $jsAddonsPath "OtherPlugin_1.0\main.js"))) { throw "Unrelated payload was removed." }
 
+    foreach ($foreign in @("WpsHighSchoolMath_Notes_1.0.0","WpsHighSchoolMath_8.8.8")) {
+        if (-not [IO.File]::Exists((Join-Path $jsAddonsPath ($foreign + "\manifest.xml")))) { throw "Uninstalled foreign add-in $foreign" }
+    }
     [xml]$publish = Get-Content -LiteralPath $publishPath -Raw -Encoding UTF8
+    if (-not $publish.DocumentElement.SelectSingleNode("*[@name='WpsHighSchoolMath_Notes' and @url='WpsHighSchoolMath_Notes_1.0.0']") -or
+        [IO.File]::ReadAllText((Join-Path $jsAddonsPath "WpsHighSchoolMath_Notes_1.0.0\notes.txt")) -ne "independent plugin data") {
+        throw "Uninstall changed the registration or data of an independent add-in with a shared prefix."
+    }
     if (@($publish.DocumentElement.SelectNodes("*[@name='WpsHighSchoolMath' or @name='WpsHighSchoolMathPpt']")).Count -ne 0 -or
         @($publish.DocumentElement.SelectNodes("*[@name='OtherPlugin']")).Count -ne 1) {
         throw "publish.xml uninstall cleanup changed the wrong registrations."

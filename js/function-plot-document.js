@@ -86,6 +86,12 @@
       return null;
     }
 
+    var range;
+    try {
+      range = selection.Range;
+      if (!range || !isFinite(range.Start) || !isFinite(range.End) ||
+          Number(selection.Type) === 1 || Number(range.End) - Number(range.Start) !== 1) { return null; }
+    } catch (_) { return null; }
     var collections = [];
     try { if (selection.InlineShapes) { collections.push(selection.InlineShapes); } } catch (_) {}
     try { if (selection.Range && selection.Range.InlineShapes) { collections.push(selection.Range.InlineShapes); } } catch (_) {}
@@ -95,32 +101,22 @@
           var selected = collections[collectionIndex].Item(1);
           var selectedConfig = shapeMetadata(selected);
           if (selectedConfig && exactWriterSelection(selection, selected)) {
-            return { host: "writer", shape: selected, config: selectedConfig };
+            return { host: "writer", document: doc, shape: selected, config: selectedConfig };
           }
         }
       } catch (_) {}
     }
 
-    var start = null;
-    var end = null;
-    try {
-      start = Number(selection.Range.Start);
-      end = Number(selection.Range.End);
-    } catch (_) {}
-    if (start === null || !isFinite(start)) {
-      return null;
-    }
+    // A readable selection collection is authoritative, including an empty collection.
+    if (collections.length) { return null; }
     try {
       var count = Number(doc.InlineShapes.Count) || 0;
       for (var index = 1; index <= count; index += 1) {
         var shape = doc.InlineShapes.Item(index);
-        var shapeStart = Number(shape.Range.Start);
-        var shapeEnd = Number(shape.Range.End);
-        var touchesSelection = start === shapeStart && (start === end || end === shapeEnd);
-        if (touchesSelection) {
+        if (exactWriterSelection(selection, shape)) {
           var config = shapeMetadata(shape);
           if (config) {
-            return { host: "writer", shape: shape, config: config };
+            return { host: "writer", document: doc, shape: shape, config: config };
           }
         }
       }
@@ -132,7 +128,7 @@
     try {
       var range = selection.Range;
       return Number(range.Start) === Number(shape.Range.Start) &&
-        (Number(range.Start) === Number(range.End) || Number(range.End) === Number(shape.Range.End));
+        Number(range.Start) < Number(range.End) && Number(range.End) === Number(shape.Range.End);
     } catch (_) { return false; }
   }
 
@@ -145,7 +141,9 @@
       }
       var shape = range.Item(1);
       var config = shapeMetadata(shape);
-      return config ? { host: "presentation", shape: shape, config: config } : null;
+      if (!config) { return null; }
+      var document = activePresentation(app);
+      return { host: "presentation", document: document, slide: activeSlide(app, document), shape: shape, config: config };
     } catch (_) {
       return null;
     }
@@ -154,6 +152,23 @@
   function getSelectedPlot(app) {
     var writer = selectedWriterShape(app);
     return writer || selectedPresentationShape(app);
+  }
+
+  function samePlot(left, right) {
+    if (!left || !right || left.host !== right.host || !left.document || !right.document) { return false; }
+    try {
+      if (left.document !== right.document &&
+          !(left.document.Path && left.document.FullName && left.document.FullName === right.document.FullName)) { return false; }
+      if (left.host === "presentation") {
+        if (!left.slide || !right.slide) { return false; }
+        if (left.slide !== right.slide && !(left.slide.SlideID && left.slide.SlideID === right.slide.SlideID)) { return false; }
+        return left.shape === right.shape || Boolean(left.shape.Id && left.shape.Id === right.shape.Id);
+      }
+      if (left.shape === right.shape) { return true; }
+      var oldRange = left.shape.Range;
+      return Boolean(oldRange && typeof oldRange.IsEqual === "function" && oldRange.IsEqual(right.shape.Range) &&
+        left.shape.AlternativeText === right.shape.AlternativeText);
+    } catch (_) { return false; }
   }
 
   function rangeStart(shape, fallback) {
@@ -178,36 +193,48 @@
     return geometry;
   }
 
-  function insertIntoWriter(app, path, plot, config) {
+  function insertIntoWriter(app, path, plot, config, selected) {
     var doc = app && app.ActiveDocument;
     var selection = app && app.Selection;
     if (!doc || !selection || !doc.InlineShapes) {
       throw new Error("请先打开一个 WPS 文字文档。");
     }
-    var selected = selectedWriterShape(app);
     var update = Boolean(selected);
     var preserved = selected ? shapeGeometry(selected.shape) : {};
     var insertionRange = selection.Range;
     var start = selected ? rangeStart(selected.shape, NaN) : Number(insertionRange.Start);
     if (!isFinite(start)) { throw new Error("无法确定插入位置，请重新选择光标位置。"); }
     // A collapsed range inserts beside the old content without deleting it.
-    if (typeof doc.Range === "function") {
+    if (insertionRange.Duplicate && typeof insertionRange.Duplicate.Collapse === "function") {
+      insertionRange = insertionRange.Duplicate;
+      insertionRange.Collapse(1);
+    } else if (typeof doc.Range === "function") {
       insertionRange = doc.Range(start, start);
     } else if (selected || Number(insertionRange.Start) !== Number(insertionRange.End)) {
       throw new Error("当前 WPS 无法安全替换选区，请将光标放到空白位置后插入新图。");
     }
 
     var shape = doc.InlineShapes.AddPicture(path, false, true, insertionRange);
-    finishReplacement(shape, selected && selected.shape, config);
-    try {
-      shape.LockAspectRatio = -1;
-      shape.Width = preserved.width || 420;
-      if (preserved.height) {
+    finishReplacement(shape, selected && selected.shape, config, function () {
+      if (preserved.width && preserved.height) {
+        var lock = -1;
+        try { if (selected.shape.LockAspectRatio === 0) { lock = 0; } } catch (_) {}
+        // WPS rounds locked SVG dimensions on each assignment. Restore the two dimensions independently.
+        shape.LockAspectRatio = 0;
+        shape.Width = preserved.width;
         shape.Height = preserved.height;
-      } else if (!Number(shape.Height) || Number(shape.Height) < 10) {
-        shape.Height = Math.round(Number(shape.Width) * plot.height / plot.width);
+        shape.LockAspectRatio = lock;
+        if (!(Math.abs(shape.Width - preserved.width) <= 0.75 && Math.abs(shape.Height - preserved.height) <= 0.75)) {
+          throw new Error("无法保留所选图像的原始尺寸，已取消替换。");
+        }
+      } else {
+        try {
+          shape.LockAspectRatio = -1;
+          shape.Width = 420;
+          if (!(Number(shape.Height) >= 10)) { shape.Height = Math.round(shape.Width * plot.height / plot.width); }
+        } catch (_) {}
       }
-    } catch (_) {}
+    });
     try { selection.SetRange(shape.Range.End, shape.Range.End); } catch (_) {}
     return {
       host: "writer",
@@ -217,9 +244,10 @@
     };
   }
 
-  function finishReplacement(shape, previous, config) {
+  function finishReplacement(shape, previous, config, prepare) {
     if (!shape) { throw new Error("WPS 未返回新图像，原内容已保留。"); }
     try {
+      if (prepare) { prepare(); }
       applyMetadata(shape, config);
     } catch (error) {
       try {
@@ -299,13 +327,12 @@
     };
   }
 
-  function insertIntoPresentation(app, path, plot, config) {
+  function insertIntoPresentation(app, path, plot, config, selected) {
     var presentation = activePresentation(app);
     var slide = activeSlide(app, presentation);
     if (!presentation || !slide || !slide.Shapes) {
       throw new Error("请先打开一个 WPS 演示文稿并选中幻灯片。");
     }
-    var selected = selectedPresentationShape(app);
     var update = Boolean(selected);
     var geometry = selected ? shapeGeometry(selected.shape) : newPresentationGeometry(slide, presentation, plot);
     var shape = slide.Shapes.AddPicture(
@@ -317,7 +344,26 @@
       geometry.width,
       geometry.height
     );
-    finishReplacement(shape, selected && selected.shape, config);
+    finishReplacement(shape, selected && selected.shape, config, function () {
+      if (!selected) { return; }
+      var rotation = Number(selected.shape.Rotation);
+      var originalLayer = Number(selected.shape.ZOrderPosition);
+      if (!isFinite(rotation) || !(originalLayer > 0)) {
+        throw new Error("无法读取原图的旋转角度或图层，已取消替换。");
+      }
+      shape.Rotation = rotation;
+      // Leave the new picture immediately above the old one until deletion succeeds.
+      var layer = Number(shape.ZOrderPosition);
+      while (layer > originalLayer + 1) {
+        shape.ZOrder(3); // msoSendBackward
+        var moved = Number(shape.ZOrderPosition);
+        if (moved !== layer - 1) { throw new Error("WPS 无法恢复原图的图层。"); }
+        layer = moved;
+      }
+      if (layer !== originalLayer + 1 || !(Math.abs(Number(shape.Rotation) - rotation) < 0.01)) {
+        throw new Error("无法保留原图的旋转角度或图层，已取消替换。");
+      }
+    });
     try { shape.Name = "高中数学函数图像"; } catch (_) {}
     try { shape.Select(); } catch (_) {}
     return {
@@ -329,13 +375,17 @@
     };
   }
 
-  function insertOrUpdate(app, path, plot, input) {
+  function insertOrUpdate(app, path, plot, input, expected) {
     var config = normalizeConfig(input);
+    var selected = expected === null ? null : getSelectedPlot(app);
+    if (expected && !samePlot(expected, selected)) {
+      throw new Error("所选图像或文档已改变，请重新载入要更新的函数图像。");
+    }
     var writerDocument = null;
     try { writerDocument = app && app.ActiveDocument; } catch (_) {}
-    if (writerDocument) { return insertIntoWriter(app, path, plot, config); }
+    if (writerDocument) { return insertIntoWriter(app, path, plot, config, selected); }
     if (activePresentation(app)) {
-      return insertIntoPresentation(app, path, plot, config);
+      return insertIntoPresentation(app, path, plot, config, selected);
     }
     throw new Error("当前不是可插入图像的 WPS 文字或演示窗口。");
   }
@@ -351,6 +401,7 @@
     parseMetadata: parseMetadata,
     applyMetadata: applyMetadata,
     getSelectedPlot: getSelectedPlot,
+    samePlot: samePlot,
     getSelectedPlotConfig: function (app) {
       var selected = getSelectedPlot(app);
       return selected ? clone(selected.config) : null;

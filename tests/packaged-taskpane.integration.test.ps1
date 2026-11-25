@@ -13,7 +13,7 @@ function Assert-TestCondition {
 $taskPanePath = Join-Path $projectRoot "js\taskpane.js"
 $taskPane = Get-Content -LiteralPath $taskPanePath -Raw -Encoding UTF8
 Assert-TestCondition ($taskPane.Contains("openPackaged")) "Packaged task-pane API is missing."
-Assert-TestCondition ($taskPane.Contains("PAGE_MAP") -and $taskPane.Contains('"tool-center"') -and $taskPane.Contains('"function-plot"') -and $taskPane.Contains('"license"')) "Packaged page whitelist is incomplete."
+Assert-TestCondition ($taskPane.Contains("PAGE_MAP") -and -not $taskPane.Contains('"tool-center"') -and $taskPane.Contains('"function-plot"') -and -not $taskPane.Contains('"license"')) "Packaged page whitelist is incomplete."
 Assert-TestCondition ($taskPane.Contains("CreateTaskPane") -and $taskPane.Contains("PluginStorage") -and $taskPane.Contains("file:")) "Packaged task-pane runtime contract is incomplete."
 foreach ($forbidden in @("openLocalEditor", "localhost", "127.0.0.1", "ShellExecute", "OAAssist", "XMLHttpRequest", "WpsHighSchoolMathEditorHost")) {
     Assert-TestCondition ($taskPane.IndexOf($forbidden, [StringComparison]::OrdinalIgnoreCase) -lt 0) "Task-pane source contains forbidden runtime text: $forbidden"
@@ -26,7 +26,7 @@ $pptIndex = Get-Content -LiteralPath (Join-Path $projectRoot "ppt\index.html") -
 Assert-TestCondition ($writerIndex.Contains('src="./main.js"') -and -not $writerIndex.Contains("entry.js")) "Writer root page does not load main.js directly."
 Assert-TestCondition ($pptIndex.Contains('src="./main.js"') -and -not $pptIndex.Contains("entry.js")) "Presentation root page does not load main.js directly."
 
-foreach ($pageName in @("tool-center", "function-plot", "license")) {
+foreach ($pageName in @("function-plot")) {
     $pagePath = Join-Path $projectRoot "ui\$pageName.html"
     Assert-TestCondition (Test-Path -LiteralPath $pagePath -PathType Leaf) "Task-pane page is missing: $pageName"
     $page = Get-Content -LiteralPath $pagePath -Raw -Encoding UTF8
@@ -38,7 +38,7 @@ New-Item -ItemType Directory -Path (Join-Path $tempRoot "ui") -Force | Out-Null
 try {
     $builtTaskPane = $taskPane.Replace("__PLUGIN_VERSION__", $version)
     [IO.File]::WriteAllText((Join-Path $tempRoot "taskpane.js"), $builtTaskPane, [Text.UTF8Encoding]::new($false))
-    foreach ($pageName in @("tool-center", "function-plot", "license")) {
+    foreach ($pageName in @("function-plot")) {
         Copy-Item -LiteralPath (Join-Path $projectRoot "ui\$pageName.html") `
             -Destination (Join-Path $tempRoot "ui\$pageName-$versionSuffix.html") -Force
         Assert-TestCondition (Test-Path -LiteralPath (Join-Path $tempRoot "ui\$pageName-$versionSuffix.html")) "Versioned task-pane page was not created: $pageName"

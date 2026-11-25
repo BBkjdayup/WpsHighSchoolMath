@@ -14,8 +14,8 @@ function Get-FriendlyInstallerMessage {
     param([Exception]$Exception)
 
     $technicalMessage = [string]$Exception.Message
-    if ($technicalMessage -match 'Close all WPS Writer and Presentation windows') {
-        return "检测到 WPS 文字或 WPS 演示仍在运行。请先保存所有文档，并完全退出所有 WPS 窗口，然后重新运行安装包。"
+    if ($technicalMessage -match 'Close all WPS Writer and Presentation windows|后台自动化也可能持有未保存的文档') {
+        return "检测到 WPS 文字或 WPS 演示仍在运行。请保存文档，等待后台任务结束，完全退出 WPS 后重新运行安装包。"
     }
     if ($technicalMessage -match 'Rollback also failed') {
         return "安装失败，自动恢复旧版本时也遇到问题。请保留错误日志并联系技术支持，不要手动删除插件目录。"

@@ -53,6 +53,28 @@ try {
     [void](Test-HsmPayload -PayloadPath $writerPath -ExpectedProduct "WpsHighSchoolMath" -ExpectedPluginName "WpsHighSchoolMath" -ExpectedVersion "9.9.9" -ExpectedHostType "wps" -ExpectedManifestSha256 $writerManifest.Sha256)
     [void](Test-HsmPayload -PayloadPath $pptPath -ExpectedProduct "WpsHighSchoolMath" -ExpectedPluginName "WpsHighSchoolMathPpt" -ExpectedVersion "9.9.9" -ExpectedHostType "wpp" -ExpectedManifestSha256 $pptManifest.Sha256)
 
+    $mixedCasePaths = @(
+        [pscustomobject]@{ path = "a.js"; bytes = 2; sha256 = "cafe" }
+        [pscustomobject]@{ path = "B.js"; bytes = 1; sha256 = "beef" }
+    )
+    if ((Get-HsmPayloadDigest -Files $mixedCasePaths) -ne "24e97e6cde8b1919bec220c10cd913068962bccb836f95fab54d1d6719631167") {
+        throw "The aggregate must hash ordinally sorted UTF-8 lines regardless of runtime collation."
+    }
+
+    $legacyPath = Join-Path $testRoot "legacy"
+    Copy-Item -LiteralPath $writerPath -Destination $legacyPath -Recurse
+    $legacyManifestPath = Join-Path $legacyPath "PAYLOAD-MANIFEST.json"
+    $legacy = Get-Content -LiteralPath $legacyManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $legacy.PSObject.Properties.Remove("digestOrder")
+    [Array]::Reverse($legacy.files)
+    $legacy.payloadSha256 = Get-HsmPayloadDigest -Files $legacy.files -ManifestOrder
+    Write-HsmUtf8Json -Value $legacy -Path $legacyManifestPath
+    [void](Test-HsmPayload -PayloadPath $legacyPath -ExpectedProduct "WpsHighSchoolMath" -ExpectedPluginName "WpsHighSchoolMath" -ExpectedVersion "9.9.9" -ExpectedHostType "wps")
+    Write-TestFile -Path (Join-Path $legacyPath "js\content.js") -Content "changed"
+    Assert-Throws {
+        Test-HsmPayload -PayloadPath $legacyPath -ExpectedProduct "WpsHighSchoolMath" -ExpectedPluginName "WpsHighSchoolMath" -ExpectedVersion "9.9.9" -ExpectedHostType "wps"
+    } "A changed file in a legacy payload was not rejected."
+
     $damagedPath = Join-Path $testRoot "damaged"
     Copy-Item -LiteralPath $writerPath -Destination $damagedPath -Recurse
     Write-TestFile -Path (Join-Path $damagedPath "js\content.js") -Content "changed"

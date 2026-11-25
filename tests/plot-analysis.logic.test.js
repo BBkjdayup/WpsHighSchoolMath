@@ -16,6 +16,21 @@ function near(actual, expected, tolerance = 1e-6) {
   assert(Math.abs(actual - expected) <= tolerance, actual + " is not near " + expected);
 }
 let result = roots("x^2", "1");
+for (const [expression, min, max, expected] of [
+  ["1/(1/x)", -2, 2, []], ["1/(1/x)", -1, 2, []], ["x^2", -1, 2, [0]], ["x^2+1e-20", -1, 2, []],
+  ["sqrt(x)", -5, 5, [0]], ["sqrt(x-0.3)", -1, 2, [0.3]], ["sqrt(1-x^2)", -2, 2, [-1, 1]]
+]) {
+  const chart = plotter.generateConfigSvg({ expressions: [expression], bounds: { ...bounds, xMin: min, xMax: max },
+    analysis: { intersection: { first: 0, second: "axis" } } });
+  assert.equal(chart.analysis.points.length, expected.length, expression);
+  assert.equal((chart.svg.match(/data-analysis-point="intersection"/g) || []).length, expected.length);
+  expected.forEach((x, i) => near(chart.analysis.points[i].x, x));
+}
+for (const [expression, x] of [["sqrt(x)^0", -1], ["1/(1/x)", 0], ["exp(ln(x))", 0], ["atan(1/x)", 0]]) {
+  assert(Number.isNaN(plotter.evaluateExpression(expression, x)), expression);
+}
+const undefinedPlot = plotter.generateConfigSvg({ expressions: ["sqrt(x)^0"], bounds: { ...bounds, xMin: -4, xMax: -1 } });
+assert(!undefinedPlot.svg.includes("<path data-curve="));
 assert.equal(result.points.length, 2);
 near(result.points[0].x, -1);
 near(result.points[1].x, 1);

@@ -38,10 +38,16 @@ function makeSlide(existingShapes) {
       Item(index) { return items[index - 1]; },
       AddPicture(filePath, linkToFile, saveWithDocument, left, top, width, height) {
         const shape = makeShape(left, top, width, height, {
-          filePath,
-          Delete() { this.deleted = true; },
-          Select() { this.selected = true; }
+          filePath, Rotation: 0,
+          Delete() { items.splice(items.indexOf(this), 1); this.deleted = true; },
+          Select() { this.selected = true; },
+          ZOrder(direction) {
+            assert.equal(direction, 3);
+            const at = items.indexOf(this);
+            if (at > 0) { items.splice(at - 1, 0, items.splice(at, 1)[0]); }
+          }
         });
+        Object.defineProperty(shape, "ZOrderPosition", { get() { return items.indexOf(shape) + 1; } });
         items.push(shape);
         return shape;
       }
@@ -111,10 +117,11 @@ function makeSlide(existingShapes) {
   assert(inserted.shape.AlternativeText.includes(functionDocument.METADATA_PREFIX));
   assert.equal(inserted.shape.Name, "高中数学函数图像");
 
-  const oldShape = makeShape(101, 202, 303, 204, {
-    AlternativeText: functionDocument.serializeMetadata(config),
-    Delete() { this.deleted = true; }
-  });
+  const oldShape = slide.Shapes.AddPicture("old", false, true, 101, 202, 303, 204);
+  oldShape.AlternativeText = functionDocument.serializeMetadata(config);
+  oldShape.Rotation = 30;
+  const oldLayer = oldShape.ZOrderPosition;
+  const annotation = slide.Shapes.AddPicture("annotation", false, true, 120, 210, 40, 20);
   selection.ShapeRange = { Count: 1, Item() { return oldShape; } };
   const updatedConfig = Object.assign({}, config, {
     expressions: ["a*abs(x)+c"],
@@ -129,6 +136,19 @@ function makeSlide(existingShapes) {
   assert.equal(updated.shape.Top, 202);
   assert.equal(updated.shape.Width, 303);
   assert.equal(updated.shape.Height, 204);
+  assert.equal(updated.shape.Rotation, 30);
+  assert.equal(updated.shape.ZOrderPosition, oldLayer);
+  assert.equal(annotation.ZOrderPosition, oldLayer + 1);
+  selection.ShapeRange = { Count: 1, Item() { return updated.shape; } };
+  const addPicture = slide.Shapes.AddPicture;
+  slide.Shapes.AddPicture = function (...args) {
+    const next = addPicture(...args);
+    next.ZOrder = function () {};
+    return next;
+  };
+  assert.throws(() => functionDocument.insertOrUpdate(app, "next.svg", plot, updatedConfig), /图层/);
+  assert.equal(slide.items[oldLayer - 1], updated.shape);
+  assert.equal(slide.items[oldLayer], annotation);
   assert.deepStrictEqual(functionDocument.parseMetadata(updated.shape.AlternativeText), updatedConfig);
 }
 

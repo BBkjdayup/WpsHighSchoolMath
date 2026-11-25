@@ -25,7 +25,7 @@
     exp: Math.exp,
     floor: Math.floor,
     ceil: Math.ceil,
-    sign: function (value) { return value === 0 ? 0 : (value > 0 ? 1 : -1); }
+    sign: function (value) { return isFinite(value) ? (value === 0 ? 0 : (value > 0 ? 1 : -1)) : NaN; }
   };
 
   var DASHES = { solid: "", dashed: "9 5", dotted: "2 5", dashdot: "9 4 2 4" };
@@ -138,17 +138,21 @@
       return tokens[position++];
     }
 
+    function finite(value) {
+      return isFinite(value) ? value : NaN;
+    }
+
     function combine(operator, left, right) {
       if (operator === "+") {
-        return function (x) { return left(x) + right(x); };
+        return function (x) { return finite(left(x) + right(x)); };
       }
       if (operator === "-") {
-        return function (x) { return left(x) - right(x); };
+        return function (x) { return finite(left(x) - right(x)); };
       }
       if (operator === "*") {
-        return function (x) { return left(x) * right(x); };
+        return function (x) { return finite(left(x) * right(x)); };
       }
-      return function (x) { return left(x) / right(x); };
+      return function (x) { return finite(left(x) / right(x)); };
     }
 
     function parseExpression() {
@@ -189,14 +193,19 @@
       if (peek("^")) {
         position += 1;
         var exponent = parseUnary();
-        return function (x) { return Math.pow(base(x), exponent(x)); };
+        return function (x) {
+          var value = base(x);
+          var power = exponent(x);
+          // Math.pow(NaN, 0) otherwise hides an undefined inner expression.
+          return isFinite(value) && isFinite(power) ? finite(Math.pow(value, power)) : NaN;
+        };
       }
       return base;
     }
 
     function parsePrimary() {
       if (peek("number")) {
-        var number = tokens[position++].value;
+        var number = finite(tokens[position++].value);
         return function () { return number; };
       }
 
@@ -204,7 +213,7 @@
         var name = tokens[position++].value;
         if (name === "x") {
           usesX = true;
-          return function (x) { return x; };
+          return function (x) { return finite(x); };
         }
         if (["a", "b", "c"].indexOf(name) >= 0) {
           if (!parameters || !Object.prototype.hasOwnProperty.call(parameters, name) ||
@@ -227,7 +236,7 @@
         take("(");
         var argument = parseExpression();
         take(")");
-        return function (x) { return FUNCTIONS[name](argument(x)); };
+        return function (x) { return finite(FUNCTIONS[name](argument(x))); };
       }
 
       if (peek("(")) {
@@ -273,14 +282,18 @@
     return factor * power;
   }
 
-  function formatNumber(value) {
-    if (Math.abs(value) < 1e-10) {
-      return "0";
-    }
-    if (Math.abs(value) >= 10000 || Math.abs(value) < 0.001) {
-      return value.toExponential(1);
-    }
-    return String(Number(value.toFixed(4)));
+  function firstTick(min, step) {
+    var nearest = Math.round(min / step) * step;
+    var rounding = Math.min(step * 1e-7, (Math.abs(min) + step) * 1e-15);
+    return Math.abs(min - nearest) <= rounding ? nearest : Math.ceil(min / step) * step;
+  }
+
+  function formatNumber(value, step) {
+    if (Math.abs(value) < step * 1e-8) { return "0"; }
+    var digits = Math.max(0, -Math.floor(Math.log(step) / Math.LN10 + 1e-9));
+    if (digits <= 12) { return String(Number(value.toFixed(digits))); }
+    var precision = Math.min(16, Math.max(1, Math.ceil(Math.log(Math.abs(value) / step) / Math.LN10) + 1));
+    return String(Number(value.toPrecision(precision)));
   }
 
   function generatePlotSvg(expressions, bounds, options, curves, points) {
@@ -403,8 +416,8 @@
 
     var xStep = niceStep(limits.xMax - limits.xMin);
     var yStep = niceStep(limits.yMax - limits.yMin);
-    var firstX = Math.ceil(limits.xMin / xStep) * xStep;
-    var firstY = Math.ceil(limits.yMin / yStep) * yStep;
+    var firstX = firstTick(limits.xMin, xStep);
+    var firstY = firstTick(limits.yMin, yStep);
     var value;
 
     for (var tick = 0; tick < 100; tick += 1) {
@@ -415,7 +428,7 @@
         body.push('<line x1="' + xPosition + '" y1="' + margin.top + '" x2="' + xPosition + '" y2="' + (margin.top + plotHeight) + '" stroke="#e2e8f0" stroke-width="1"/>');
       }
       if (showTickLabels) {
-        body.push('<text x="' + xPosition + '" y="' + (height - 24) + '" text-anchor="middle" font-size="12" fill="#475569">' + formatNumber(value) + '</text>');
+        body.push('<text x="' + xPosition + '" y="' + (height - 24) + '" text-anchor="middle" font-size="12" fill="#475569">' + formatNumber(value, xStep) + '</text>');
       }
     }
     for (tick = 0; tick < 100; tick += 1) {
@@ -426,7 +439,7 @@
         body.push('<line x1="' + margin.left + '" y1="' + yPosition + '" x2="' + (margin.left + plotWidth) + '" y2="' + yPosition + '" stroke="#e2e8f0" stroke-width="1"/>');
       }
       if (showTickLabels) {
-        body.push('<text x="' + (margin.left - 10) + '" y="' + (yPosition + 4) + '" text-anchor="end" font-size="12" fill="#475569">' + formatNumber(value) + '</text>');
+        body.push('<text x="' + (margin.left - 10) + '" y="' + (yPosition + 4) + '" text-anchor="end" font-size="12" fill="#475569">' + formatNumber(value, yStep) + '</text>');
       }
     }
 

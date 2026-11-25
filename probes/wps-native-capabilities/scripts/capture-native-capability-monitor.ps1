@@ -172,7 +172,13 @@ public static class HsmNativeProbeMonitorV1
         TCP_TABLE_CLASS tableClass,
         uint reserved);
 
-    private static Dictionary<int, int> ParentMap()
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool QueryFullProcessImageName(IntPtr handle, uint flags, System.Text.StringBuilder path, ref int characters);
+
+    private static Dictionary<int, int> ParentMap(Dictionary<int, string> processNames)
     {
         var result = new Dictionary<int, int>();
         IntPtr snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -187,6 +193,7 @@ public static class HsmNativeProbeMonitorV1
             do
             {
                 result[(int)entry.th32ProcessID] = (int)entry.th32ParentProcessID;
+                processNames[(int)entry.th32ProcessID] = Path.GetFileNameWithoutExtension(entry.szExeFile ?? String.Empty);
                 entry.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32));
             } while (Process32Next(snapshot, ref entry));
         }
@@ -194,10 +201,22 @@ public static class HsmNativeProbeMonitorV1
         return result;
     }
 
-    private static string ProcessPath(Process process)
+    private static string ProcessPath(int pid)
     {
-        try { return Path.GetFullPath(process.MainModule.FileName); }
-        catch { return String.Empty; }
+        const uint queryLimitedInformation = 0x1000;
+        IntPtr handle = OpenProcess(queryLimitedInformation, false, pid);
+        if (handle == IntPtr.Zero) return String.Empty;
+        try
+        {
+            int length = 512;
+            var path = new System.Text.StringBuilder(length);
+            if (QueryFullProcessImageName(handle, 0, path, ref length)) return path.ToString();
+            if (Marshal.GetLastWin32Error() != ERROR_INSUFFICIENT_BUFFER) return String.Empty;
+            length = 32768;
+            path.EnsureCapacity(length);
+            return QueryFullProcessImageName(handle, 0, path, ref length) ? path.ToString() : String.Empty;
+        }
+        finally { CloseHandle(handle); }
     }
 
     private static int DecodePort(uint value)
@@ -268,23 +287,18 @@ public static class HsmNativeProbeMonitorV1
     {
         string writer = Path.GetFullPath(writerExe);
         string presentation = Path.GetFullPath(presentationExe);
-        var parents = ParentMap();
-        var processPaths = new Dictionary<int, string>();
         var processNames = new Dictionary<int, string>();
-        foreach (Process process in Process.GetProcesses())
+        var parents = ParentMap(processNames);
+        var processPaths = new Dictionary<int, string>();
+        foreach (var pair in processNames)
         {
-            try
-            {
-                string name = process.ProcessName ?? String.Empty;
-                processNames[process.Id] = name;
-                bool pathRequired = String.Equals(name, "wps", StringComparison.OrdinalIgnoreCase) ||
-                    String.Equals(name, "wpp", StringComparison.OrdinalIgnoreCase) ||
-                    name.IndexOf("WpsHighSchoolMath", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    name.IndexOf("HsmNativeCapability", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    name.IndexOf("EditorHost", StringComparison.OrdinalIgnoreCase) >= 0;
-                if (pathRequired) processPaths[process.Id] = ProcessPath(process);
-            }
-            finally { process.Dispose(); }
+            string name = pair.Value;
+            if (String.Equals(name, "wps", StringComparison.OrdinalIgnoreCase) ||
+                String.Equals(name, "wpp", StringComparison.OrdinalIgnoreCase) ||
+                name.IndexOf("WpsHighSchoolMath", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("HsmNativeCapability", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                name.IndexOf("EditorHost", StringComparison.OrdinalIgnoreCase) >= 0)
+                processPaths[pair.Key] = ProcessPath(pair.Key);
         }
 
         var targets = new HashSet<int>();
@@ -350,6 +364,8 @@ public static class HsmNativeProbeMonitorV1
 '@
 
 Add-Type -TypeDefinition $monitorSource -Language CSharp
+# Load native tables and JIT the collector before declaring the measurement interval open.
+[void][HsmNativeProbeMonitorV1]::Capture($WriterExe, $PresentationExe)
 
 $samples = New-Object 'Collections.Generic.List[object]'
 $startedAt = [DateTimeOffset]::UtcNow

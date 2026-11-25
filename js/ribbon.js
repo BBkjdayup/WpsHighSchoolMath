@@ -2,10 +2,6 @@ if (typeof SYMBOLS === "undefined") {
   throw new Error("js/symbols.js must be loaded before js/ribbon.js.");
 }
 
-if (typeof MathLicense === "undefined") {
-  throw new Error("js/license.js must be loaded before js/ribbon.js.");
-}
-
 var EXAM_TEMPLATES = {
   exam_header: "学校：____________　班级：____________　姓名：____________　考号：____________\r",
   choice_stem: "一、选择题：本题共____小题，每小题____分，共____分。\r",
@@ -42,78 +38,23 @@ var COMMANDS = {
   page_a4: function () { return setPageLayout("a4-portrait"); },
   page_a4_two_column: function () { return setPageLayout("a4-landscape-2col"); },
   add_page_number: function () { return addPageNumber(); },
-  function_plot: function () { return showFunctionPlotPane(); },
-  authorization_center: function () { return MathLicense.openAuthorizationCenter(getAuthorizationPaneOptions()); }
-};
-
-var PAID_COMMAND_LABELS = {
-  exam_header: "试卷卷头",
-  choice_stem: "选择题模板",
-  fill_stem: "填空题模板",
-  answer_stem: "解答题模板",
-  choice_one_line: "选择题选项",
-  choice_two_lines: "选择题选项",
-  choice_four_lines: "选择题选项",
-  fill_blank: "填空横线",
-  answer_question: "解答题模板",
-  align_left: "文档排版",
-  align_center: "文档排版",
-  remove_spaces: "文档排版",
-  table_to_text: "表格转文字",
-  line_spacing_more: "行距调整",
-  line_spacing_less: "行距调整",
-  underline_add: "下划线工具",
-  underline_remove: "下划线工具",
-  emphasis_add: "着重号工具",
-  emphasis_remove: "着重号工具",
-  toggle_hidden: "隐藏文字工具",
-  page_a4: "页面布局",
-  page_a4_two_column: "页面布局",
-  add_page_number: "添加页码",
-  function_plot: "绘制函数"
-};
-
-var FREE_EXPIRED_COMMANDS = {
-  exam_header: true,
-  choice_stem: true,
-  fill_stem: true,
-  answer_stem: true,
-  choice_one_line: true,
-  choice_two_lines: true,
-  choice_four_lines: true,
-  fill_blank: true,
-  answer_question: true,
-  authorization_center: true
+  function_plot: function () { return showFunctionPlotPane(); }
 };
 
 function OnAddinLoad(ribbonUI) {
   if (typeof window.Application.ribbonUI !== "object") {
     window.Application.ribbonUI = ribbonUI;
   }
-  try {
-    MathLicense.remindIfExpired(getAuthorizationPaneOptions());
-  } catch (_) {}
   return true;
 }
 
 function OnAction(control) {
   var symbol = SYMBOLS[control.Id];
   if (symbol !== undefined) {
-    if (!MathLicense.requirePaidFeature("数学符号", getAuthorizationPaneOptions())) {
-      return false;
-    }
     return insertMathSymbol(symbol);
   }
-
   var command = COMMANDS[control.Id];
-  if (command) {
-    if (!FREE_EXPIRED_COMMANDS[control.Id] && !MathLicense.requirePaidFeature(PAID_COMMAND_LABELS[control.Id] || "高级功能", getAuthorizationPaneOptions())) {
-      return false;
-    }
-    return command();
-  }
-
-  return true;
+  return command ? command() : true;
 }
 
 function getApplication() {
@@ -121,16 +62,8 @@ function getApplication() {
 }
 
 function getPluginBaseUrl() {
-  var url = decodeURI(document.location.toString());
+  var url = document.location.toString().split(/[?#]/)[0];
   return url.substring(0, url.lastIndexOf("/"));
-}
-
-function getAuthorizationPaneOptions() {
-  return {
-    app: getApplication(),
-    pluginBaseUrl: getPluginBaseUrl(),
-    role: "writer"
-  };
 }
 
 function showFunctionPlotPane() {
@@ -151,11 +84,9 @@ function showFunctionPlotPane() {
     app: app,
     pluginBaseUrl: getPluginBaseUrl(),
     role: "writer",
-    name: "tool-center",
-    view: "function-plot",
+    name: "function-plot",
     width: 420,
     readyTimeout: 5000,
-    legacyKeys: ["high_school_math_function_plot_pane", "hsmath_license_pane_id_v1"],
     onFailure: nativeFallback
   }) || nativeFallback();
 }
@@ -218,12 +149,20 @@ function insertMathSymbol(text) {
     return false;
   }
 
-  var start = selection.Start;
   var originalFont = fontNames(selection.Font);
   try {
+    var selectedRange = selection.Range;
+    var insertedRange;
+    try { insertedRange = selectedRange.Duplicate; } catch (_) {}
+    if (!insertedRange) { insertedRange = selectedRange; }
+    var canSetRange = typeof insertedRange.SetRange === "function";
+    if (!canSetRange && !(Number(selectedRange.StoryType) === 1 && typeof doc.Range === "function")) {
+      throw new Error("当前 WPS 无法定位本区域的符号，请将光标移动到正文后重试。");
+    }
     selection.TypeText(text);
-    var end = start + text.length;
-    var insertedRange = doc.Range(start, end);
+    var end = Number(selection.Range.End);
+    if (canSetRange) { insertedRange.SetRange(end - text.length, end); }
+    else { insertedRange = doc.Range(end - text.length, end); }
     setFontNames(insertedRange.Font, {
       Name: "Cambria Math",
       NameAscii: "Cambria Math",
@@ -328,17 +267,32 @@ function setParagraphAlignment(alignment) {
 
 function removeSpaces() {
   var selection = getSelection();
-  if (!selection) {
-    return false;
-  }
-
-  var text = String(selection.Text || "").replace(/\r$/, "");
-  if (!text) {
+  var range = selection && selection.Range;
+  if (!range || range.End <= range.Start) {
     alert("请先选择需要删除空格的文字。");
     return false;
   }
-
-  selection.Text = text.replace(/[ \t\u3000]+/g, "");
+  var text = String(range.Text || "");
+  var start = range.Start;
+  var runs = [];
+  var spaces = /[ \t\u3000]+/g;
+  var match;
+  while ((match = spaces.exec(text)) !== null) {
+    runs.push({ offset: match.index, text: match[0] });
+  }
+  if (!runs.length) { return true; }
+  var parts = [];
+  for (var i = runs.length - 1; i >= 0; i -= 1) {
+    var item = runs[i];
+    var part = range.Duplicate;
+    part.SetRange(start + item.offset, start + item.offset + item.text.length);
+    if (part.Text !== item.text) {
+      alert("当前选区包含特殊内容，无法准确定位空格。请缩小选区。");
+      return false;
+    }
+    parts.push(part);
+  }
+  for (var j = 0; j < parts.length; j += 1) { parts[j].Delete(); }
   return true;
 }
 
@@ -476,9 +430,6 @@ function addPageNumber() {
 }
 
 function OnGetEnabled(control) {
-  if (control && control.Id === "authorization_center") {
-    return true;
-  }
   return !!(getApplication() && getApplication().ActiveDocument);
 }
 

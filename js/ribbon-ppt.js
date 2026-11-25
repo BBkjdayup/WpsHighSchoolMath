@@ -6,46 +6,24 @@ if (typeof WpsPptApi === "undefined") {
   throw new Error("js/ppt-api.js must be loaded before js/ribbon-ppt.js.");
 }
 
-if (typeof MathLicense === "undefined") {
-  throw new Error("js/license.js must be loaded before js/ribbon-ppt.js.");
-}
-
 var COMMANDS = {
-  function_plot: function () { return showFunctionPlotPane(); },
-  authorization_center: function () { return MathLicense.openAuthorizationCenter(getAuthorizationPaneOptions()); }
+  function_plot: function () { return showFunctionPlotPane(); }
 };
 
 function OnAddinLoad(ribbonUI) {
   if (typeof window.Application.ribbonUI !== "object") {
     window.Application.ribbonUI = ribbonUI;
   }
-  try {
-    MathLicense.remindIfExpired(getAuthorizationPaneOptions());
-  } catch (_) {}
   return true;
 }
 
 function OnAction(control) {
   var symbol = SYMBOLS[control.Id];
   if (symbol !== undefined) {
-    if (!MathLicense.requirePaidFeature("PPT 数学符号", getAuthorizationPaneOptions())) {
-      return false;
-    }
     return insertMathSymbol(symbol);
   }
-
   var command = COMMANDS[control.Id];
-  if (command) {
-    if (control.Id === "authorization_center") {
-      return command();
-    }
-    if (!MathLicense.requirePaidFeature("绘制函数", getAuthorizationPaneOptions())) {
-      return false;
-    }
-    return command();
-  }
-
-  return true;
+  return command ? command() : true;
 }
 
 function getApplication() {
@@ -53,16 +31,8 @@ function getApplication() {
 }
 
 function getPluginBaseUrl() {
-  var url = decodeURI(document.location.toString());
+  var url = document.location.toString().split(/[?#]/)[0];
   return url.substring(0, url.lastIndexOf("/"));
-}
-
-function getAuthorizationPaneOptions() {
-  return {
-    app: getApplication(),
-    pluginBaseUrl: getPluginBaseUrl(),
-    role: "presentation"
-  };
 }
 
 function showFunctionPlotPane() {
@@ -83,11 +53,9 @@ function showFunctionPlotPane() {
     app: app,
     pluginBaseUrl: getPluginBaseUrl(),
     role: "presentation",
-    name: "tool-center",
-    view: "function-plot",
+    name: "function-plot",
     width: 420,
     readyTimeout: 5000,
-    legacyKeys: ["high_school_math_ppt_function_plot_pane", "hsmath_license_pane_id_v1"],
     onFailure: nativeFallback
   }) || nativeFallback();
 }
@@ -285,9 +253,6 @@ function insertMathSymbol(text) {
 }
 
 function OnGetEnabled(control) {
-  if (control && control.Id === "authorization_center") {
-    return true;
-  }
   return !!getActivePresentation();
 }
 

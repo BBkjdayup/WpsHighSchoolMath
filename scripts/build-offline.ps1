@@ -206,29 +206,19 @@ $rootFiles = @("index.html", "main.js", "manifest.xml", "ribbon.xml")
 foreach ($file in $rootFiles) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $file) -Destination $payloadPath -Force
 }
-Copy-Item -LiteralPath (Join-Path $projectRoot "ui") -Destination $payloadPath -Recurse -Force
-New-Item -ItemType Directory -Path (Join-Path $payloadPath "js") -Force | Out-Null
-foreach ($file in @("symbols.js", "taskpane.js", "license-public-key.js", "license.js", "ribbon.js", "plot-config.js", "plot-analysis.js", "plotter.js", "plot-library.js", "function-plot-document.js", "function-plot-native.js")) {
-    Copy-Item -LiteralPath (Join-Path $projectRoot "js\$file") -Destination (Join-Path $payloadPath "js") -Force
-}
-Copy-Item -LiteralPath (Join-Path $projectRoot "js\vendor") -Destination (Join-Path $payloadPath "js") -Recurse -Force
-if (Test-Path -LiteralPath (Join-Path $projectRoot "assets")) {
-    Copy-Item -LiteralPath (Join-Path $projectRoot "assets") -Destination $payloadPath -Recurse -Force
-}
-
 $pptPayloadPath = Join-Path $stagingPath "payload\${pptPluginName}_${pluginVersion}"
 New-Item -ItemType Directory -Path $pptPayloadPath -Force | Out-Null
-foreach ($file in @("index.html", "main.js", "manifest.xml", "ribbon.xml")) {
+foreach ($file in $rootFiles) {
     Copy-Item -LiteralPath (Join-Path $projectRoot "ppt\$file") -Destination $pptPayloadPath -Force
 }
-New-Item -ItemType Directory -Path (Join-Path $pptPayloadPath "js") -Force | Out-Null
-foreach ($file in @("symbols.js", "ppt-api.js", "taskpane.js", "license-public-key.js", "license.js", "ribbon-ppt.js", "plot-config.js", "plot-analysis.js", "plotter.js", "plot-library.js", "function-plot-document.js", "function-plot-native.js")) {
-    Copy-Item -LiteralPath (Join-Path $projectRoot "js\$file") -Destination (Join-Path $pptPayloadPath "js") -Force
-}
-Copy-Item -LiteralPath (Join-Path $projectRoot "js\vendor") -Destination (Join-Path $pptPayloadPath "js") -Recurse -Force
-Copy-Item -LiteralPath (Join-Path $projectRoot "ui") -Destination $pptPayloadPath -Recurse -Force
-if (Test-Path -LiteralPath (Join-Path $projectRoot "assets")) {
-    Copy-Item -LiteralPath (Join-Path $projectRoot "assets") -Destination $pptPayloadPath -Recurse -Force
+$sharedScripts = @("symbols.js", "ppt-api.js", "taskpane.js", "plot-config.js", "plot-analysis.js", "plotter.js", "plot-library.js", "function-plot-document.js", "function-plot-native.js")
+foreach ($target in @($payloadPath, $pptPayloadPath)) {
+    $targetJs = New-Item -ItemType Directory -Path (Join-Path $target "js") -Force
+    $ribbonScript = if ($target -eq $payloadPath) { "ribbon.js" } else { "ribbon-ppt.js" }
+    foreach ($file in ($sharedScripts + $ribbonScript)) {
+        Copy-Item -LiteralPath (Join-Path $projectRoot "js\$file") -Destination $targetJs.FullName -Force
+    }
+    Copy-Item -LiteralPath (Join-Path $projectRoot "ui") -Destination $target -Recurse -Force
 }
 
 foreach ($taskPaneScript in @(
@@ -245,7 +235,7 @@ foreach ($uiPath in @(
     (Join-Path $payloadPath "ui"),
     (Join-Path $pptPayloadPath "ui")
 )) {
-    foreach ($pageName in @("license", "function-plot", "tool-center")) {
+    foreach ($pageName in @("function-plot")) {
         Copy-Item -LiteralPath (Join-Path $uiPath "$pageName.html") `
             -Destination (Join-Path $uiPath "$pageName-$taskPaneVersionSuffix.html") -Force
     }
@@ -294,7 +284,7 @@ foreach ($scriptName in @("offline-install.ps1", "offline-uninstall.ps1", "valid
     $destinationName = $scriptName.Replace("offline-", "")
     [IO.File]::WriteAllText((Join-Path $stagingPath $destinationName), $content, (New-Object Text.UTF8Encoding($true)))
 }
-foreach ($scriptName in @("offline-configure-wps.ps1", "offline-uninstall-cleanup.ps1", "uninstall-registration.ps1")) {
+foreach ($scriptName in @("offline-configure-wps.ps1", "offline-uninstall-cleanup.ps1", "uninstall-registration.ps1", "addin-maintenance.ps1")) {
     $destinationName = $scriptName.Replace("offline-", "")
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $scriptName) -Destination (Join-Path $stagingPath $destinationName) -Force
 }
@@ -315,18 +305,10 @@ if (-not $installerContent.Contains('Register-HsmUninstaller') -or -not $install
     throw "Installer must register a persistent Windows uninstall entry."
 }
 
-$publicKeyModule = Join-Path $projectRoot "js\license-public-key.js"
-if (-not (Test-Path -LiteralPath $publicKeyModule -PathType Leaf)) {
-    throw "License public-key module is missing. Run: node scripts\license-keygen.js"
-}
-$publicKeyContent = [IO.File]::ReadAllText($publicKeyModule, (New-Object Text.UTF8Encoding($false)))
-if ($publicKeyContent -notmatch 'MathLicensePublicKey' -or $publicKeyContent -notmatch '[A-Za-z0-9+/]{43}=') {
-    throw "License public-key module is invalid. Run: node scripts\license-keygen.js"
-}
 $forbiddenPrivateKeys = Get-ChildItem -LiteralPath $stagingPath -Recurse -File |
     Where-Object { $_.Extension -in @('.pem', '.key', '.pfx', '.p12') -or $_.Name -match 'private.*key|key.*private' }
 if ($forbiddenPrivateKeys) {
-    throw "Private licensing material must never be included in the release: $($forbiddenPrivateKeys.FullName -join ', ')"
+    throw "Private key material must never be included in the release: $($forbiddenPrivateKeys.FullName -join ', ')"
 }
 
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "offline-install.cmd") -Destination (Join-Path $stagingPath "install.cmd") -Force
@@ -335,14 +317,17 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot "offline-uninstall.cmd") -Destin
 $readme = @"
 WPS High School Math $pluginVersion - Offline Installer
 
+Before upgrading, export your favorites in each open editor and save the backup text before closing WPS.
+
 Install:
-1. Close all WPS Writer and Presentation windows.
+1. Save all documents and presentations. Finish any background WPS automation and exit WPS.
 2. Run install.cmd, or run the EXE installer.
 3. The add-in installs for the current user first. Approve the optional administrator prompt
    to hide the WPS JS debugger button; cancelling it does not cancel the add-in installation.
 4. Reopen WPS Writer or Presentation.
 5. On the first launch after an install or upgrade, click Confirm when WPS asks whether to trust this add-in.
 
+An interrupted install can be resumed by running the same installer again.
 The installer preserves unrelated WPS JS add-ins, removes old registrations for this add-in,
 clears only stale trust fingerprints for this add-in, installs the local Writer and Presentation
 add-ins, and sets JsApiShowWebDebugger=false.
@@ -351,31 +336,18 @@ This release contains one unified add-in Ribbon tab in Writer and Presentation,
 the full offline function editor, editable function-plot metadata, and automatic
 content avoidance when inserting plots into Presentation.
 
-The function editor and authorization center share one versioned task pane with two tabs.
-It loads directly from files inside each installed add-in payload and does not start a
-local service, open a port, launch an auxiliary executable, or contact the Internet.
-
-Licensing uses Ed25519 asymmetric signatures. The installer contains only the public
-verification key. The private issuing key stays on the seller's computer and is never
-included in the ZIP, EXE, Writer payload, or Presentation payload.
-
-Trial and expiry:
-- The first plugin launch starts a 14-day full-feature trial.
-- On day 15, Writer exam-paper tools remain available; all other paid features require activation.
-- Reinstalling or normally uninstalling the plugin does not reset the machine code, trial start, or activation state.
-
-Commercial delivery:
-- Verify the release SHA-256 list before distribution.
-- Internal builds are marked internal-test/pending-certificate and are not commercial deliverables.
-- Commercial mode requires and validates a code-signing certificate, private key and timestamp.
-- The installer and both Writer and Presentation payload manifests are verified separately.
-- WPS may still request its own first-run trust confirmation after an install or upgrade.
+All features are free, offline, and available immediately in both add-ins.
+The function editor opens directly from the packaged local files.
+Restore favorites in the new editor with My Favorites > Import.
+Check the SHA-256 list and release manifest for this installer and ZIP.
+WPS may request its own add-in trust confirmation when first opening a host.
 
 Uninstall:
 Use Windows Settings > Apps > Installed apps > WPS High School Math Add-in > Uninstall,
 or use the Start menu shortcut named Uninstall High School Math Add-in.
 The uninstall.cmd file remains available as an offline fallback.
 "@
+Copy-Item -LiteralPath (Join-Path $projectRoot "LICENSE"), (Join-Path $projectRoot "THIRD_PARTY_NOTICES.md") -Destination $stagingPath -Force
 [IO.File]::WriteAllText((Join-Path $stagingPath "README.txt"), $readme, (New-Object Text.UTF8Encoding($false)))
 
 $buildInfo = [ordered]@{
@@ -388,8 +360,8 @@ $buildInfo = [ordered]@{
         unifiedRibbon = $true
         pptPlotAutoPlacement = $true
         fullFunctionEditor = $true
-        formalAuthorizationPanel = $true
-        singleToolCenterPane = $true
+        freeEdition = $true
+        singleFunctionPane = $true
         editablePlotMetadata = $true
         packagedFileTaskPanes = $true
         onDemandLoopbackEditorHost = $false
@@ -397,7 +369,6 @@ $buildInfo = [ordered]@{
         auxiliaryExecutables = $false
         transactionalDualHostInstall = $true
         payloadIntegrityManifest = $true
-        asymmetricOfflineLicensing = $true
         windowsUninstallRegistration = $true
         persistentLocalServer = $false
         symbolSearchAndFavorites = $false
@@ -543,7 +514,7 @@ $releaseManifest = [ordered]@{
     taskPanes = [ordered]@{
         enabled = $true
         source = "packaged-file"
-        allowedPages = @("tool-center", "function-plot", "license")
+        allowedPages = @("function-plot")
         versionedHtml = $true
         readyTransport = "PluginStorage"
         localHttp = $false

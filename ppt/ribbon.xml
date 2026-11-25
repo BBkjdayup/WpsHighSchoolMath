@@ -114,9 +114,6 @@
         <group id="functionPlotGroup" label="函数图像">
           <button id="function_plot" label="函数编辑器" onAction="OnAction" size="normal" screentip="绘制多条函数、自动避让页面内容，或重新编辑所选函数图像"/>
         </group>
-        <group id="licenseGroup" label="授权">
-          <button id="authorization_center" label="授权中心" onAction="OnAction" size="normal" screentip="查看到期时间、手动激活和联系方式"/>
-        </group>
       </tab>
     </tabs>
   </ribbon>

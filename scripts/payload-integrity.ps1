@@ -31,13 +31,12 @@ function Get-HsmPayloadFiles {
 }
 
 function Get-HsmPayloadDigest {
-    param([Parameter(Mandatory = $true)][object[]]$Files)
+    param([Parameter(Mandatory = $true)][object[]]$Files, [switch]$ManifestOrder)
 
-    $canonicalLines = @(
-        $Files |
-            Sort-Object path |
-            ForEach-Object { "{0}|{1}|{2}" -f ([string]$_.path), ([long]$_.bytes), ([string]$_.sha256).ToLowerInvariant() }
+    [string[]]$canonicalLines = @(
+        $Files | ForEach-Object { "{0}|{1}|{2}" -f ([string]$_.path), ([long]$_.bytes), ([string]$_.sha256).ToLowerInvariant() }
     )
+    if (-not $ManifestOrder) { [Array]::Sort($canonicalLines, [StringComparer]::Ordinal) }
     $bytes = [Text.Encoding]::UTF8.GetBytes(($canonicalLines -join "`n"))
     $sha256 = [Security.Cryptography.SHA256]::Create()
     try {
@@ -169,6 +168,7 @@ function New-HsmPayloadManifest {
             ribbonTabId = $contract.ribbonTabId
         }
         fileCount = $files.Count
+        digestOrder = "ordinal-lines-v1"
         payloadSha256 = Get-HsmPayloadDigest -Files $files
         files = $files
     }
@@ -245,13 +245,19 @@ function Test-HsmPayload {
             throw "Payload contains an unlisted file: $relativePath"
         }
         $expected = $expectedByPath[$relativePath]
-        if ([long]$expected.bytes -ne [long]$actual.bytes -or
+        if ([string]$expected.path -cne $relativePath -or [long]$expected.bytes -ne [long]$actual.bytes -or
             ([string]$expected.sha256).ToLowerInvariant() -ne ([string]$actual.sha256).ToLowerInvariant()) {
             throw "Payload file hash mismatch: $relativePath"
         }
     }
 
-    $payloadSha256 = Get-HsmPayloadDigest -Files $actualFiles
+    # Legacy manifests recorded the builder's sorted file list. Every listed
+    # path, length and digest has been matched against the actual files above.
+    if (-not $manifest.PSObject.Properties["digestOrder"]) {
+        $payloadSha256 = Get-HsmPayloadDigest -Files $manifestFiles -ManifestOrder
+    } elseif ($manifest.digestOrder -eq "ordinal-lines-v1") {
+        $payloadSha256 = Get-HsmPayloadDigest -Files $actualFiles
+    } else { throw "Unsupported payload digest order for $ExpectedPluginName." }
     if ($payloadSha256 -ne ([string]$manifest.payloadSha256).ToLowerInvariant()) {
         throw "Payload aggregate hash mismatch for $ExpectedPluginName."
     }

@@ -12,25 +12,7 @@
 })(function (root) {
   var BUILD_VERSION = "__PLUGIN_VERSION__";
   var PAGE_MAP = {
-    "tool-center": {
-      path: "ui/tool-center.html",
-      title: "高中数学工具",
-      reuse: true,
-      defaultView: "function-plot",
-      views: {
-        "function-plot": true,
-        "license": true
-      },
-      legacyNames: ["function-plot", "license"]
-    },
-    "function-plot": {
-      path: "ui/function-plot.html",
-      title: "函数编辑器"
-    },
-    "license": {
-      path: "ui/license.html",
-      title: "授权中心"
-    }
+    "function-plot": { path: "ui/function-plot.html", title: "函数编辑器" }
   };
   var activePanes = {};
   var operationSequence = 0;
@@ -123,7 +105,7 @@
   }
 
   function versionedPagePath(name) {
-    var page = PAGE_MAP[name];
+    var page = Object.prototype.hasOwnProperty.call(PAGE_MAP, name) && PAGE_MAP[name];
     if (!page) {
       return "";
     }
@@ -229,66 +211,11 @@
     }
   }
 
-  function hideSavedPane(app, storage, key) {
-    var paneId = getItem(storage, key);
-    if (paneId && app && typeof app.GetTaskPane === "function") {
-      try { hidePane(app.GetTaskPane(paneId)); } catch (_) {}
-    }
-    setItem(storage, key, "");
-  }
-
-  function allowedView(name, view) {
-    var page = PAGE_MAP[name];
-    return !!(page && page.views && page.views[String(view || "")]);
-  }
-
-  function requestView(app, name, view) {
-    var storage = getStorage(app);
-    var normalizedName = String(name || "");
-    var normalizedView = String(view || "");
-    if (!storage || !allowedView(normalizedName, normalizedView)) {
-      return "";
-    }
-    var requestToken = makeToken(normalizedName + "-" + normalizedView, 0);
-    setItem(storage, storageKey(normalizedName, "view"), normalizedView);
-    setItem(storage, storageKey(normalizedName, "view-request"), requestToken);
-    setItem(storage, storageKey(normalizedName, "view-ack"), "");
-    return requestToken;
-  }
-
-  function getRequestedView(app, name, fallback) {
-    var storage = getStorage(app);
-    var view = getItem(storage, storageKey(name, "view"));
-    if (allowedView(name, view)) {
-      return view;
-    }
-    return allowedView(name, fallback) ? String(fallback) : "";
-  }
-
-  function acknowledgeView(app, name) {
-    var storage = getStorage(app);
-    var requestToken = getItem(storage, storageKey(name, "view-request"));
-    if (!storage || !requestToken) {
-      return false;
-    }
-    return setItem(storage, storageKey(name, "view-ack"), requestToken);
-  }
-
-  function retirePane(app, storage, host, name) {
-    var stateKey = host + ":" + name;
-    var state = activePanes[stateKey];
-    if (state && state.pane) {
-      hidePane(state.pane);
-    }
-    delete activePanes[stateKey];
-    hideSavedPane(app, storage, storageKey(name, "id"));
-  }
-
   function openPackaged(options) {
     options = options || {};
     var app = options.app;
     var name = String(options.name || "");
-    var page = PAGE_MAP[name];
+    var page = Object.prototype.hasOwnProperty.call(PAGE_MAP, name) && PAGE_MAP[name];
     var host = options.role === "presentation" ? "presentation" :
       (options.role === "writer" ? "writer" : "");
     var rootUrl = pluginRootUrl();
@@ -311,46 +238,29 @@
       return false;
     }
 
-    var view = String(options.view || page.defaultView || "");
-    if (view && !allowedView(name, view)) {
-      return false;
-    }
-    var viewRequest = view ? requestView(app, name, view) : "";
-    if (view && !viewRequest) {
-      return false;
-    }
-
     var stateKey = host + ":" + name;
-    var idKey = storageKey(name, "id");
-    var readyKey = storageKey(name, "ready");
+    var idKey = storageKey(stateKey, "id");
+    var readyKey = storageKey(stateKey, "ready");
+    var tokenKey = storageKey(stateKey, "token");
     var previous = activePanes[stateKey];
-
-    var legacyNames = page.legacyNames || [];
-    for (var legacyNameIndex = 0; legacyNameIndex < legacyNames.length; legacyNameIndex += 1) {
-      retirePane(app, storage, host, legacyNames[legacyNameIndex]);
+    var savedId = getItem(storage, idKey);
+    var savedPane = null;
+    if (savedId && typeof app.GetTaskPane === "function") {
+      try { savedPane = app.GetTaskPane(savedId); } catch (_) {}
+    } else if (previous) {
+      savedPane = previous.pane;
     }
-
-    var legacyKeys = options.legacyKeys || [];
-    for (var legacyIndex = 0; legacyIndex < legacyKeys.length; legacyIndex += 1) {
-      hideSavedPane(app, storage, legacyKeys[legacyIndex]);
+    var expectedToken = getItem(storage, tokenKey);
+    var pending = previous && !previous.failureReported && !previous.readyReported &&
+      previous.token === expectedToken;
+    if (savedPane && expectedToken && (pending || getItem(storage, readyKey) === expectedToken) &&
+        showPane(savedPane, options.width)) {
+      if (!pending && typeof options.onReady === "function") { options.onReady(); }
+      return true;
     }
-    var reusablePane = null;
-    if (page.reuse) {
-      if (previous && previous.pane) {
-        reusablePane = previous.pane;
-      } else {
-        var savedPaneId = getItem(storage, idKey);
-        if (savedPaneId && typeof app.GetTaskPane === "function") {
-          try { reusablePane = app.GetTaskPane(savedPaneId); } catch (_) { reusablePane = null; }
-        }
-      }
-    } else {
-      if (previous && previous.pane) {
-        hidePane(previous.pane);
-      }
-      hideSavedPane(app, storage, idKey);
-    }
-    delete activePanes[stateKey];
+    if (previous) { hidePane(previous.pane); }
+    if (savedPane) { hidePane(savedPane); }
+    setItem(storage, idKey, "");
 
     var state = {
       id: ++operationSequence,
@@ -370,6 +280,8 @@
         return;
       }
       state.failureReported = true;
+      setItem(storage, tokenKey, "");
+      setItem(storage, readyKey, "");
       hidePane(state.pane);
       setItem(storage, idKey, "");
       if (typeof options.onFailure === "function") {
@@ -395,10 +307,10 @@
       var pageUrl = appendQuery(rootUrl + "/" + path, {
         hsmPane: name,
         hsmToken: token,
-        hsmHost: host,
-        hsmView: view
+        hsmHost: host
       });
       var pane = null;
+      setItem(storage, tokenKey, token);
       setItem(storage, readyKey, "");
       try {
         pane = app.CreateTaskPane(pageUrl, options.title || page.title);
@@ -446,34 +358,7 @@
       return true;
     }
 
-    function reusePane(pane) {
-      state.pane = pane;
-      setItem(storage, idKey, pane.ID || getItem(storage, idKey));
-      if (!showPane(pane, options.width || 420)) {
-        setItem(storage, idKey, "");
-        return createPane(0);
-      }
-      var scheduled = schedule(function () {
-        if (!isCurrent() || state.failureReported) {
-          return;
-        }
-        if (getItem(storage, storageKey(name, "view-ack")) === viewRequest) {
-          reportReady();
-          return;
-        }
-        hidePane(pane);
-        setItem(storage, idKey, "");
-        createPane(0);
-      }, options.reuseTimeout === undefined ? 800 : Number(options.reuseTimeout), options);
-      if (!scheduled) {
-        hidePane(pane);
-        setItem(storage, idKey, "");
-        return createPane(0);
-      }
-      return true;
-    }
-
-    return reusablePane && viewRequest ? reusePane(reusablePane) : createPane(0);
+    return createPane(0);
   }
 
   function signalReady(expectedName) {
@@ -483,7 +368,7 @@
       (values.hsmHost === "writer" ? "writer" : "");
     var token = String(values.hsmToken || "");
     var current = stripQueryAndHash(locationText());
-    var page = PAGE_MAP[name];
+    var page = Object.prototype.hasOwnProperty.call(PAGE_MAP, name) && PAGE_MAP[name];
     if (!page || !host || !token || !isSafeFileUrl(current)) {
       return false;
     }
@@ -496,15 +381,15 @@
     }
     var app = null;
     try { app = root.Application || root.wps || null; } catch (_) { app = null; }
-    return setItem(getStorage(app), storageKey(name, "ready"), token);
+    var storage = getStorage(app);
+    var stateKey = host + ":" + name;
+    if (getItem(storage, storageKey(stateKey, "token")) !== token) { return false; }
+    return setItem(storage, storageKey(stateKey, "ready"), token);
   }
 
   return {
     openPackaged: openPackaged,
     signalReady: signalReady,
-    requestView: requestView,
-    getRequestedView: getRequestedView,
-    acknowledgeView: acknowledgeView,
     getVersion: version,
     _private: {
       appendQuery: appendQuery,
@@ -515,7 +400,6 @@
       isSafeFileUrl: isSafeFileUrl,
       sameFileRoot: sameFileRoot,
       makeToken: makeToken,
-      allowedView: allowedView,
       activePanes: activePanes,
       pageMap: PAGE_MAP
     }

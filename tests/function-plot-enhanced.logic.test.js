@@ -112,6 +112,12 @@ function writerFixture(failure) {
   };
   return { app, calls, previous, created };
 }
+{
+  const fixture = writerFixture();
+  Object.defineProperty(fixture.created, "Width", { get() { return 180; }, set() {} });
+  assert.throws(() => documents.insertOrUpdate(fixture.app, "plot.svg", plot, config), /原始尺寸/);
+  assert(!fixture.previous.deleted && fixture.created.deleted);
+}
 for (const failure of ["insert", "metadata"]) {
   const fixture = writerFixture(failure);
   assert.throws(() => documents.insertOrUpdate(fixture.app, "plot.svg", plot, config));
@@ -167,6 +173,39 @@ for (const failure of ["insert", "metadata"]) {
         assert.deepEqual(documents.parseMetadata(result.shape.AlternativeText), configApi.normalizeConfig(stored));
       }
     }
+  }
+}
+
+{
+  const fixture = writerFixture();
+  const original = documents.getSelectedPlot(fixture.app);
+  const other = writerFixture();
+  assert.throws(() => documents.insertOrUpdate(other.app, "plot.svg", plot, config, original), /重新载入/);
+  assert.deepEqual(other.calls, []);
+  assert(!fixture.previous.deleted && !other.previous.deleted);
+  const secondShape = { ...fixture.previous, Range: { Start: 15, End: 16 } };
+  fixture.app.Selection.InlineShapes = { Count: 1, Item() { return secondShape; } };
+  fixture.app.Selection.Range = secondShape.Range;
+  assert.throws(() => documents.insertOrUpdate(fixture.app, "plot.svg", plot, config, original), /重新载入/);
+  assert(!fixture.previous.deleted && !secondShape.deleted && !fixture.calls.includes("add"));
+  fixture.app.Selection.Range = { Start: 8, End: 8 };
+  let enumerated = 0;
+  Object.defineProperty(fixture.app.ActiveDocument.InlineShapes, "Count", { get() { enumerated++; return 500; } });
+  assert.equal(documents.getSelectedPlot(fixture.app), null);
+  assert(!documents.insertOrUpdate(fixture.app, "plot.svg", plot, config, null).updated);
+  assert.equal(enumerated, 0);
+  assert(!fixture.previous.deleted);
+}
+{
+  const plotter = require("../js/plotter.js");
+  assert(Number.isNaN(plotter.evaluateExpression("sign(sqrt(x))", -1)));
+  assert.equal(plotter.evaluateExpression("sign(sqrt(x))", 0), 0);
+  for (const base of [10000, -10010, 0.00001]) {
+    const step = base === 0.00001 ? 0.000001 : 1;
+    const svg = plotter.generatePlotSvg(["x"], { xMin: base, xMax: base + 10 * step, yMin: -1, yMax: 1 }).svg;
+    const labels = Array.from(svg.matchAll(/text-anchor="middle" font-size="12" fill="#475569">([^<]+)<\/text>/g), m => m[1]);
+    assert.equal(new Set(labels).size, 11);
+    labels.forEach((n, i) => assert(Math.abs(Number(n) - (base + i * step)) < step / 100));
   }
 }
 

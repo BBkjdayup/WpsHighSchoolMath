@@ -86,6 +86,7 @@
         if (farX < lo || farX > hi) { continue; }
         var far = at(farX);
         var near = at(point.x + sign * h / 2);
+        if (!isFinite(far.d) && !isFinite(near.d)) { continue; }
         if (!isFinite(far.d) || !isFinite(near.d)) { return false; }
         for (var keyIndex = 0; keyIndex < 2; keyIndex += 1) {
           var key = keyIndex === 0 ? "a" : "b";
@@ -98,11 +99,11 @@
       }
       return sides > 0 || lo === hi;
     }
-    function add(point, bracketed) {
+    function add(point, bracketed, localError) {
       if (!isFinite(point.d)) { return; }
       // A same-sign minimum needs a much stricter residual than a sign bracket.
       var tolerance = bracketed ? 1e-9 + 8 * EPS * Math.max(Math.abs(point.a), Math.abs(point.b)) :
-        4 * EPS * Math.max(Math.abs(point.a), Math.abs(point.b));
+        4 * EPS * Math.max(Math.abs(point.a), Math.abs(point.b)) + (localError || 0);
       if (Math.abs(point.d) > tolerance || !continuous(point)) { return; }
       var separation = Math.max((hi - lo) * 1e-7, 128 * EPS * Math.max(1, Math.abs(point.x)));
       if (points.some(function (other) { return Math.abs(other.x - point.x) <= separation; })) { return; }
@@ -112,7 +113,8 @@
     function bisect(left, right) {
       var exact = null;
       for (var iteration = 0; iteration < 64; iteration += 1) {
-        var middleX = left.x + (right.x - left.x) / 2;
+        // Zero is exactly representable and can be an excluded point of a rational expression.
+        var middleX = left.x < 0 && right.x > 0 ? 0 : left.x + (right.x - left.x) / 2;
         if (middleX === left.x || middleX === right.x) { break; }
         var middle = at(middleX);
         if (!isFinite(middle.d)) { return; }
@@ -137,7 +139,23 @@
           a = c.x; c = d; d = at(a + ratio * (b - a));
         }
       }
-      add(Math.abs(c.d) < Math.abs(d.d) ? c : d, false);
+      var best = Math.abs(c.d) < Math.abs(d.d) ? c : d;
+      // The remaining bracket bounds the precision of the extremum's location.
+      // A nonzero minimum that has stopped improving has no residual allowance.
+      var variation = Math.max(Math.abs(at(a).d - best.d), Math.abs(at(b).d - best.d));
+      add(best, false, variation);
+    }
+    function domainBoundary(valid, invalid) {
+      // Refine from inside the common domain. Only an actual finite zero at
+      // the boundary qualifies, never a limit approached across an open end.
+      if (valid.d === 0) { return; } // The sampled zero/overlap is handled in the main scan.
+      for (var step = 0; step < 64; step += 1) {
+        var x = valid.x + (invalid.x - valid.x) / 2;
+        if (x === valid.x || x === invalid.x) { break; }
+        var middle = at(x);
+        if (isFinite(middle.d)) { valid = middle; } else { invalid = middle; }
+      }
+      if (valid.d === 0) { add(valid, false); }
     }
     if (lo === hi) { add(at(lo), false); }
     else {
@@ -147,6 +165,9 @@
         var current = samples[i];
         var left = samples[i - 1];
         var right = samples[i + 1];
+        if (right && isFinite(current.d) !== isFinite(right.d)) {
+          domainBoundary(isFinite(current.d) ? current : right, isFinite(current.d) ? right : current);
+        }
         if (!isFinite(current.d)) { continue; }
         if (current.d === 0) {
           if ((left && left.d === 0) || (right && right.d === 0)) { overlap = true; }
@@ -156,7 +177,7 @@
           bisect(current, right);
         }
         if (left && right && isFinite(left.d) && isFinite(right.d) &&
-            current.d !== 0 && Math.abs(current.d) < Math.abs(left.d) && Math.abs(current.d) < Math.abs(right.d) &&
+            current.d !== 0 && Math.abs(current.d) < Math.abs(left.d) && Math.abs(current.d) <= Math.abs(right.d) &&
             (left.d < 0) === (right.d < 0)) { minimumCandidate(left, right); }
       }
     }

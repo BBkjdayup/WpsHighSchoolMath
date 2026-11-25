@@ -61,62 +61,6 @@ function Save-XmlDocument {
     }
 }
 
-function Write-Utf8TextAtomic {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [AllowEmptyString()][string]$Content
-    )
-
-    $directory = Split-Path -Parent $Path
-    New-Item -ItemType Directory -Path $directory -Force | Out-Null
-    $temporaryPath = Join-Path $directory ("." + [IO.Path]::GetFileName($Path) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
-    $replaceBackupPath = $temporaryPath + ".bak"
-    try {
-        [IO.File]::WriteAllText($temporaryPath, $Content, (New-Object Text.UTF8Encoding($false)))
-        if (Test-Path -LiteralPath $Path -PathType Leaf) {
-            [IO.File]::Replace($temporaryPath, $Path, $replaceBackupPath)
-            Remove-Item -LiteralPath $replaceBackupPath -Force
-        } else {
-            [IO.File]::Move($temporaryPath, $Path)
-        }
-    } finally {
-        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
-            Remove-Item -LiteralPath $temporaryPath -Force
-        }
-        if (Test-Path -LiteralPath $replaceBackupPath -PathType Leaf) {
-            Remove-Item -LiteralPath $replaceBackupPath -Force
-        }
-    }
-}
-
-function Copy-FileAtomic {
-    param(
-        [Parameter(Mandatory = $true)][string]$Source,
-        [Parameter(Mandatory = $true)][string]$Destination
-    )
-
-    $directory = Split-Path -Parent $Destination
-    New-Item -ItemType Directory -Path $directory -Force | Out-Null
-    $temporaryPath = Join-Path $directory ("." + [IO.Path]::GetFileName($Destination) + "." + [Guid]::NewGuid().ToString("N") + ".tmp")
-    $replaceBackupPath = $temporaryPath + ".bak"
-    try {
-        Copy-Item -LiteralPath $Source -Destination $temporaryPath -Force
-        if (Test-Path -LiteralPath $Destination -PathType Leaf) {
-            [IO.File]::Replace($temporaryPath, $Destination, $replaceBackupPath)
-            Remove-Item -LiteralPath $replaceBackupPath -Force
-        } else {
-            [IO.File]::Move($temporaryPath, $Destination)
-        }
-    } finally {
-        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
-            Remove-Item -LiteralPath $temporaryPath -Force
-        }
-        if (Test-Path -LiteralPath $replaceBackupPath -PathType Leaf) {
-            Remove-Item -LiteralPath $replaceBackupPath -Force
-        }
-    }
-}
-
 function Set-IniValue {
     param(
         [string]$Content,
@@ -180,7 +124,8 @@ function Update-AuthorizationCache {
     param(
         [string]$Path,
         [object[]]$Plugins,
-        [string]$JsAddonsPath
+        [string]$JsAddonsPath,
+        [string]$BackupPath
     )
 
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -279,7 +224,7 @@ function Update-AuthorizationCache {
         return
     }
 
-    $backupPath = "$Path.math-plugin-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    if (-not $BackupPath) { $BackupPath = "$Path.math-plugin-backup-$([Guid]::NewGuid().ToString('N'))" }
     Copy-Item -LiteralPath $Path -Destination $backupPath -Force
     $json = $authorization | ConvertTo-Json -Depth 16
     Write-Utf8TextAtomic -Path $Path -Content $json
@@ -316,69 +261,6 @@ function Stop-LocalEditorHosts {
         Stop-Process -Id $processId -Force -ErrorAction Stop
         Wait-Process -Id $processId -Timeout 5 -ErrorAction SilentlyContinue
     }
-}
-
-function Test-WpsProcessHasUserWindow {
-    param([Parameter(Mandatory = $true)][object]$Process)
-
-    try {
-        if ($Process.PSObject.Methods.Name -contains "Refresh") {
-            $Process.Refresh()
-        }
-        return [int64]$Process.MainWindowHandle -ne 0
-    } catch {
-        # If the process cannot be inspected, block installation rather than risk
-        # changing add-in files while a document window may still be open.
-        return $true
-    }
-}
-
-function Stop-WpsBackgroundHosts {
-    param([object[]]$Processes)
-
-    foreach ($process in @($Processes)) {
-        if (Test-WpsProcessHasUserWindow -Process $process) {
-            continue
-        }
-        try {
-            $processId = [int]$process.Id
-            Stop-Process -Id $processId -Force -ErrorAction Stop
-            Wait-Process -Id $processId -Timeout 5 -ErrorAction SilentlyContinue
-        } catch {
-            Write-Verbose "Unable to stop a headless WPS background process: $($_.Exception.Message)"
-        }
-    }
-}
-
-function Assert-HsmChildPath {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$Root
-    )
-
-    $fullRoot = [IO.Path]::GetFullPath($Root).TrimEnd(
-        [IO.Path]::DirectorySeparatorChar,
-        [IO.Path]::AltDirectorySeparatorChar
-    )
-    $fullPath = [IO.Path]::GetFullPath($Path)
-    $rootPrefix = $fullRoot + [IO.Path]::DirectorySeparatorChar
-    if (-not $fullPath.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to modify a path outside the WPS jsaddons root: $fullPath"
-    }
-    return $fullPath
-}
-
-function Remove-HsmSafeDirectory {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$Root
-    )
-
-    if (-not (Test-Path -LiteralPath $Path)) {
-        return
-    }
-    $safePath = Assert-HsmChildPath -Path $Path -Root $Root
-    Remove-Item -LiteralPath $safePath -Recurse -Force
 }
 
 function Update-HsmPublishRegistration {
@@ -469,258 +351,201 @@ function Invoke-HsmInstallTransaction {
         [Parameter(Mandatory = $true)][string[]]$StaleNames,
         [Parameter(Mandatory = $true)][string]$Product,
         [Parameter(Mandatory = $true)][string]$Version,
-        [scriptblock]$TestCheckpoint
+        [scriptblock]$TestCheckpoint,
+        [scriptblock]$RegisterUninstaller
     )
 
-    $transactionRoot = Join-Path $JsAddonsPath (".hsm-install-" + [Guid]::NewGuid().ToString("N"))
-    [void](Assert-HsmChildPath -Path $transactionRoot -Root $JsAddonsPath)
+    Repair-HsmPendingTransactions $JsAddonsPath $StaleNames $RegisterUninstaller
+    $transactionRoot = Join-Path $JsAddonsPath (".hsm-install-v1-" + [Guid]::NewGuid().ToString("N").Substring(0, 12))
     $stageRoot = Join-Path $transactionRoot "new"
     $backupRoot = Join-Path $transactionRoot "backup"
     $backupPayloadRoot = Join-Path $backupRoot "payloads"
-    $failedRoot = Join-Path $transactionRoot "failed"
-    New-Item -ItemType Directory -Path $stageRoot, $backupPayloadRoot -Force | Out-Null
-
-    $publishSnapshot = Join-Path $backupRoot "publish.xml"
-    $authorizationSnapshot = Join-Path $backupRoot "authaddin.json"
-    $publishExisted = Test-Path -LiteralPath $PublishPath -PathType Leaf
-    $authorizationExisted = Test-Path -LiteralPath $AuthorizationPath -PathType Leaf
-    $rollbackErrors = @()
-
+    $configRoot = Join-Path $transactionRoot "config"
+    $trustBackup = Join-Path $backupRoot "trust-before-write.json"
+    $registering = Join-Path $transactionRoot "registering"
+    $committed = Join-Path $transactionRoot "committed"
+    $targets = @()
+    $results = @()
     try {
-        $sourceResults = @{}
-        foreach ($pluginInfo in $Plugins) {
-            $sourcePath = Join-Path $InstallerRoot "payload\$($pluginInfo.FolderName)"
-            $sourceResult = Test-HsmPayload `
-                -PayloadPath $sourcePath `
-                -ExpectedProduct $Product `
-                -ExpectedPluginName $pluginInfo.Name `
-                -ExpectedVersion $Version `
-                -ExpectedHostType $pluginInfo.Type `
-                -ExpectedManifestSha256 $pluginInfo.ManifestSha256
-            $sourceResults[$pluginInfo.Name] = $sourceResult
-
-            $existingExactPath = Join-Path $JsAddonsPath $pluginInfo.FolderName
-            $pluginInfo["PreserveApproval"] = $false
-            if (Test-Path -LiteralPath $existingExactPath -PathType Container) {
-                $pluginInfo["PreserveApproval"] = Test-HsmPayloadEquivalent `
-                    -PayloadPath $existingExactPath `
-                    -ExpectedProduct $Product `
-                    -ExpectedPluginName $pluginInfo.Name `
-                    -ExpectedVersion $Version `
-                    -ExpectedHostType $pluginInfo.Type `
-                    -ExpectedPayloadSha256 $sourceResult.PayloadSha256
+        New-Item -ItemType Directory -Path $stageRoot, $backupPayloadRoot, $configRoot -Force | Out-Null
+        $owned = @(Get-HsmOwnedPluginDirectories $JsAddonsPath $StaleNames $PublishPath)
+        $ownedNames = @($owned | ForEach-Object Name)
+        foreach ($plugin in $Plugins) {
+            $check = @{
+                ExpectedProduct = $Product; ExpectedPluginName = $plugin.Name
+                ExpectedVersion = $Version; ExpectedHostType = $plugin.Type
             }
-
-            $stagePath = Join-Path $stageRoot $pluginInfo.FolderName
-            Copy-Item -LiteralPath $sourcePath -Destination $stagePath -Recurse -Force
-            [void](Test-HsmPayload `
-                -PayloadPath $stagePath `
-                -ExpectedProduct $Product `
-                -ExpectedPluginName $pluginInfo.Name `
-                -ExpectedVersion $Version `
-                -ExpectedHostType $pluginInfo.Type `
-                -ExpectedManifestSha256 $pluginInfo.ManifestSha256)
+            $source = Join-Path $InstallerRoot ("payload\" + $plugin.FolderName)
+            $sourceResult = Test-HsmPayload @check -PayloadPath $source -ExpectedManifestSha256 $plugin.ManifestSha256
+            $live = Get-HsmTransactionFolder $JsAddonsPath $plugin.FolderName $StaleNames
+            $exists = [IO.Directory]::Exists($live)
+            if ($exists -and $ownedNames -notcontains $plugin.FolderName) {
+                throw "The destination belongs to an unidentified add-in: $live"
+            }
+            $plugin["PreserveApproval"] = $exists -and
+                (Test-HsmPayloadEquivalent @check -PayloadPath $live -ExpectedPayloadSha256 $sourceResult.PayloadSha256) -and
+                (Get-HsmSha256 (Join-Path $live "PAYLOAD-MANIFEST.json")) -eq $plugin.ManifestSha256
+            $stage = Join-Path $stageRoot $plugin.FolderName
+            if ($TestCheckpoint) { & $TestCheckpoint ("before-stage-copy-" + $plugin.Type) }
+            Copy-Item -LiteralPath $source -Destination $stage -Recurse -Force
+            [void](Test-HsmPayload @check -PayloadPath $stage -ExpectedManifestSha256 $plugin.ManifestSha256)
+            if (-not $plugin.PreserveApproval) {
+                $targets += @{ folder = $plugin.FolderName; existed = $exists; manifestHash = $plugin.ManifestSha256 }
+            }
         }
         if ($TestCheckpoint) { & $TestCheckpoint "after-stage" }
 
-        if ($publishExisted) {
-            Copy-Item -LiteralPath $PublishPath -Destination $publishSnapshot -Force
-        }
-        if ($authorizationExisted) {
-            Copy-Item -LiteralPath $AuthorizationPath -Destination $authorizationSnapshot -Force
-        }
-
-        $seenFolders = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-        foreach ($pluginInfo in $Plugins) {
-            foreach ($existingDirectory in @(
-                Get-ChildItem -LiteralPath $JsAddonsPath -Directory -Filter "$($pluginInfo.Name)_*" -ErrorAction SilentlyContinue
-            )) {
-                if (-not $seenFolders.Add($existingDirectory.Name)) {
-                    continue
-                }
-                if (($existingDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-                    throw "Refusing to replace a reparse-point add-in directory: $($existingDirectory.FullName)"
-                }
-                $safeExistingPath = Assert-HsmChildPath -Path $existingDirectory.FullName -Root $JsAddonsPath
-                Move-Item -LiteralPath $safeExistingPath -Destination (Join-Path $backupPayloadRoot $existingDirectory.Name)
+        foreach ($file in @($PublishPath, $AuthorizationPath)) {
+            if ([IO.File]::Exists($file)) {
+                $leaf = [IO.Path]::GetFileName($file)
+                Copy-Item -LiteralPath $file -Destination (Join-Path $backupRoot $leaf)
+                Copy-Item -LiteralPath $file -Destination (Join-Path $configRoot $leaf)
             }
         }
+        Update-AuthorizationCache -Path (Join-Path $configRoot "authaddin.json") -Plugins $Plugins -JsAddonsPath $JsAddonsPath -BackupPath $trustBackup
+        Update-HsmPublishRegistration -Path (Join-Path $configRoot "publish.xml") -Plugins $Plugins -StaleNames $StaleNames -Version $Version
+        if ($RegisterUninstaller) {
+            $control = New-Item -ItemType Directory -Path (Join-Path $transactionRoot "control")
+            foreach ($name in @("uninstall.ps1", "uninstall-cleanup.ps1", "uninstall-registration.ps1", "addin-maintenance.ps1")) {
+                Copy-Item -LiteralPath (Join-Path $InstallerRoot $name) -Destination $control.FullName
+            }
+        }
+        $activeFolders = @($Plugins | ForEach-Object { $_.FolderName })
+        $journal = [ordered]@{ schema = 1; product = $Product; version = $Version; targets = $targets
+            retire = @($ownedNames | Where-Object { $activeFolders -notcontains $_ }) }
+        Write-Utf8TextAtomic (Join-Path $transactionRoot "transaction.json") ($journal | ConvertTo-Json -Depth 5)
         if ($TestCheckpoint) { & $TestCheckpoint "after-backup" }
 
-        $switchedPayloadCount = 0
-        foreach ($pluginInfo in $Plugins) {
-            $stagePath = Join-Path $stageRoot $pluginInfo.FolderName
-            $finalPath = Join-Path $JsAddonsPath $pluginInfo.FolderName
-            [void](Assert-HsmChildPath -Path $stagePath -Root $JsAddonsPath)
-            [void](Assert-HsmChildPath -Path $finalPath -Root $JsAddonsPath)
-            Move-Item -LiteralPath $stagePath -Destination $finalPath
-            $switchedPayloadCount += 1
-            if ($TestCheckpoint) { & $TestCheckpoint ("after-payload-switch-" + $switchedPayloadCount) }
+        $count = 0
+        foreach ($plugin in $Plugins) {
+            $folder = $plugin.FolderName
+            $target = $targets | Where-Object { $_.folder -eq $folder }
+            if ($target) {
+                $live = Get-HsmTransactionFolder $JsAddonsPath $folder $StaleNames
+                if ($target.existed) {
+                    [IO.Directory]::Move($live, (Join-Path $backupPayloadRoot $folder))
+                    if ($TestCheckpoint) { & $TestCheckpoint ("after-displace-" + $plugin.Type) }
+                }
+                [IO.Directory]::Move((Join-Path $stageRoot $folder), $live)
+            }
+            $count++
+            if ($TestCheckpoint) { & $TestCheckpoint ("after-payload-switch-" + $count) }
         }
-
-        Update-AuthorizationCache -Path $AuthorizationPath -Plugins $Plugins -JsAddonsPath $JsAddonsPath
-        if ($TestCheckpoint) { & $TestCheckpoint "after-auth" }
-        Update-HsmPublishRegistration -Path $PublishPath -Plugins $Plugins -StaleNames $StaleNames -Version $Version
-        if ($TestCheckpoint) { & $TestCheckpoint "after-publish" }
-        $installedResults = @(Test-HsmInstalledState `
-            -JsAddonsPath $JsAddonsPath `
-            -PublishPath $PublishPath `
-            -Plugins $Plugins `
-            -Product $Product `
-            -Version $Version)
+        foreach ($file in @($AuthorizationPath, $PublishPath)) {
+            $leaf = [IO.Path]::GetFileName($file)
+            $next = Join-Path $configRoot $leaf
+            $before = Join-Path $backupRoot $leaf
+            if ([IO.File]::Exists($next) -and (-not [IO.File]::Exists($before) -or (Get-HsmSha256 $before) -ne (Get-HsmSha256 $next))) {
+                if ([IO.File]::Exists($file) -ne [IO.File]::Exists($before) -or
+                    ([IO.File]::Exists($file) -and (Get-HsmSha256 $file) -ne (Get-HsmSha256 $before))) {
+                    throw "WPS configuration changed during installation. Please retry: $file"
+                }
+                [IO.File]::WriteAllText((Join-Path $transactionRoot ("writing-" + $leaf)), "")
+                Copy-FileAtomic $next $file
+            }
+            if ($TestCheckpoint) {
+                if ($file -eq $AuthorizationPath) { & $TestCheckpoint "after-auth" } else { & $TestCheckpoint "after-publish" }
+            }
+        }
+        $results = @(Test-HsmInstalledState -JsAddonsPath $JsAddonsPath -PublishPath $PublishPath -Plugins $Plugins -Product $Product -Version $Version)
         if ($TestCheckpoint) { & $TestCheckpoint "after-validate" }
-
-        Remove-HsmSafeDirectory -Path $transactionRoot -Root $JsAddonsPath
-        return @($installedResults)
+        if ($RegisterUninstaller) {
+            [IO.File]::WriteAllText($registering, "")
+            try { [void](& $RegisterUninstaller $Version $InstallerRoot $JsAddonsPath) }
+            catch { [IO.File]::Delete($registering); throw }
+            if ($TestCheckpoint) { & $TestCheckpoint "after-register" }
+        }
+        [IO.File]::WriteAllText($committed, "")
     } catch {
-        $installError = $_
-        try { New-Item -ItemType Directory -Path $failedRoot -Force | Out-Null } catch { $rollbackErrors += $_.Exception.Message }
-
-        foreach ($pluginInfo in $Plugins) {
-            $finalPath = Join-Path $JsAddonsPath $pluginInfo.FolderName
-            if (Test-Path -LiteralPath $finalPath -PathType Container) {
-                try {
-                    $safeFinalPath = Assert-HsmChildPath -Path $finalPath -Root $JsAddonsPath
-                    Move-Item -LiteralPath $safeFinalPath -Destination (Join-Path $failedRoot $pluginInfo.FolderName) -Force
-                } catch {
-                    $rollbackErrors += $_.Exception.Message
-                }
+        $failure = $_
+        $finishRegistration = [IO.File]::Exists($registering) -or [IO.File]::Exists($committed)
+        try {
+            if ([IO.Directory]::Exists($transactionRoot)) {
+                Complete-HsmTransaction (Get-Item -LiteralPath $transactionRoot) $JsAddonsPath $StaleNames $RegisterUninstaller
             }
-        }
-
-        if (Test-Path -LiteralPath $backupPayloadRoot -PathType Container) {
-            foreach ($backupDirectory in @(Get-ChildItem -LiteralPath $backupPayloadRoot -Directory -ErrorAction SilentlyContinue)) {
-                try {
-                    $restorePath = Join-Path $JsAddonsPath $backupDirectory.Name
-                    [void](Assert-HsmChildPath -Path $restorePath -Root $JsAddonsPath)
-                    Move-Item -LiteralPath $backupDirectory.FullName -Destination $restorePath
-                } catch {
-                    $rollbackErrors += $_.Exception.Message
-                }
-            }
-        }
-
-        foreach ($snapshot in @(
-            @{ Existed = $publishExisted; Source = $publishSnapshot; Destination = $PublishPath },
-            @{ Existed = $authorizationExisted; Source = $authorizationSnapshot; Destination = $AuthorizationPath }
-        )) {
-            try {
-                if ($snapshot.Existed) {
-                    Copy-FileAtomic -Source $snapshot.Source -Destination $snapshot.Destination
-                } elseif (Test-Path -LiteralPath $snapshot.Destination -PathType Leaf) {
-                    Remove-Item -LiteralPath $snapshot.Destination -Force
-                }
-            } catch {
-                $rollbackErrors += $_.Exception.Message
-            }
-        }
-
-        if ($rollbackErrors.Count -eq 0) {
-            try { Remove-HsmSafeDirectory -Path $transactionRoot -Root $JsAddonsPath } catch { $rollbackErrors += $_.Exception.Message }
-        }
-        if ($rollbackErrors.Count -gt 0) {
-            throw "Install failed: $($installError.Exception.Message) Rollback also failed; recovery data was kept at $transactionRoot. $($rollbackErrors -join ' | ')"
-        }
-        throw "Install failed and the previous Writer/PPT installation was restored: $($installError.Exception.Message)"
+        } catch { throw "Install failed: $failure. Rollback also failed; recovery data was kept at $transactionRoot. $_" }
+        if ($finishRegistration) { throw "Windows registration was recovered after an installation error: $failure" }
+        throw "Install failed and the previous Writer/PPT installation was restored: $($failure.Exception.Message)"
     }
-}
-
-$wpsProcesses = @(Get-Process -Name "wps", "wpp" -ErrorAction SilentlyContinue)
-$openWpsProcesses = @($wpsProcesses | Where-Object { Test-WpsProcessHasUserWindow -Process $_ })
-if ($openWpsProcesses.Count -gt 0) {
-    throw "Close all WPS Writer and Presentation windows before installing this add-in."
-}
-Stop-WpsBackgroundHosts -Processes $wpsProcesses
-
-$jsAddonsPath = Join-Path $env:APPDATA "kingsoft\wps\jsaddons"
-$publishPath = Join-Path $jsAddonsPath "publish.xml"
-$authorizationPath = Join-Path $jsAddonsPath "authaddin.json"
-New-Item -ItemType Directory -Path $jsAddonsPath -Force | Out-Null
-
-$licenseStatePath = Join-Path $env:APPDATA "WpsHighSchoolMath"
-$machineIdPath = Join-Path $licenseStatePath "machine-id.txt"
-New-Item -ItemType Directory -Path $licenseStatePath -Force | Out-Null
-Stop-LocalEditorHosts -AllowedRoots @($jsAddonsPath, $licenseStatePath)
-
-$machineId = ""
-if (Test-Path -LiteralPath $machineIdPath) {
-    $machineId = ([string](Get-Content -LiteralPath $machineIdPath -Raw)).Trim().ToUpperInvariant()
-}
-if ($machineId -notmatch '^HSM[A-Z0-9]{10}$') {
-    $sha256 = [Security.Cryptography.SHA256]::Create()
     try {
-        $seedBytes = [Text.Encoding]::UTF8.GetBytes(([Guid]::NewGuid().ToString("N")) + "|" + [Environment]::MachineName + "|" + [Environment]::UserName)
-        $hashBytes = $sha256.ComputeHash($seedBytes)
-        $machineId = "HSM" + (([BitConverter]::ToString($hashBytes)).Replace("-", "").Substring(0, 10))
-    } finally {
-        $sha256.Dispose()
+        if ([IO.File]::Exists($trustBackup)) {
+            Copy-Item -LiteralPath $trustBackup -Destination "$AuthorizationPath.math-plugin-backup-$([Guid]::NewGuid().ToString('N'))"
+        }
+        Complete-HsmTransaction (Get-Item -LiteralPath $transactionRoot) $JsAddonsPath $StaleNames $RegisterUninstaller
+    } catch { Write-Warning "Installation verified. Pending cleanup at $transactionRoot. $_" }
+    return $results
+}
+
+Invoke-HsmMaintenance {
+    Assert-HsmWpsClosed
+
+    $jsAddonsPath = Join-Path $env:APPDATA "kingsoft\wps\jsaddons"
+    $publishPath = Join-Path $jsAddonsPath "publish.xml"
+    $authorizationPath = Join-Path $jsAddonsPath "authaddin.json"
+    New-Item -ItemType Directory -Path $jsAddonsPath -Force | Out-Null
+
+    $legacyProductPath = Join-Path $env:APPDATA "WpsHighSchoolMath"
+    $ownedRoots = @(Get-HsmOwnedPluginDirectories $jsAddonsPath $stalePluginNames $publishPath | ForEach-Object FullName)
+    Stop-LocalEditorHosts -AllowedRoots ($ownedRoots + $legacyProductPath)
+
+    $installedResults = @(Invoke-HsmInstallTransaction `
+        -InstallerRoot $PSScriptRoot `
+        -JsAddonsPath $jsAddonsPath `
+        -PublishPath $publishPath `
+        -AuthorizationPath $authorizationPath `
+        -Plugins $plugins `
+        -StaleNames $stalePluginNames `
+        -Product $pluginName `
+        -Version $pluginVersion `
+        -RegisterUninstaller { param($version, $source, $addons) Register-HsmUninstaller -Version $version -SourceRoot $source -JsAddonsPath $addons })
+
+    $oemPath = Get-WpsOemIniPath
+    $oemConfigured = $false
+    if ($oemPath -and (Test-Path -LiteralPath $oemPath)) {
+        try {
+            $oemBackupPath = "$oemPath.math-plugin-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+            Copy-Item -LiteralPath $oemPath -Destination $oemBackupPath -Force
+            $oemContent = Get-Content -LiteralPath $oemPath -Raw
+            $oemContent = Set-IniValue -Content $oemContent -Section "Support" -Key "JsApiPlugin" -Value "true"
+            $oemContent = Set-IniValue -Content $oemContent -Section "Support" -Key "JsApiShowWebDebugger" -Value "false"
+            Write-Utf8TextAtomic -Path $oemPath -Content $oemContent
+            $oemConfigured = $true
+        } catch {
+            $configurationScript = Join-Path $PSScriptRoot "configure-wps.ps1"
+            if (Test-Path -LiteralPath $configurationScript -PathType Leaf) {
+                try {
+                    $arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$configurationScript`""
+                    $configurationProcess = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $arguments -Wait -PassThru
+                    $oemConfigured = $configurationProcess.ExitCode -eq 0
+                } catch {
+                    Write-Warning "The add-in is installed, but the optional WPS debugger-button configuration was not approved."
+                }
+            }
+        }
+    } else {
+        Write-Warning "WPS oem.ini was not found. The plugin was installed, but the JS debugger button could not be disabled."
     }
-    [IO.File]::WriteAllText($machineIdPath, $machineId, (New-Object Text.UTF8Encoding($false)))
-}
+    if (-not $oemConfigured) {
+        Write-Warning "The add-in is installed and usable, but WPS may still show its JS debugger button."
+    }
 
-$installedResults = @(Invoke-HsmInstallTransaction `
-    -InstallerRoot $PSScriptRoot `
-    -JsAddonsPath $jsAddonsPath `
-    -PublishPath $publishPath `
-    -AuthorizationPath $authorizationPath `
-    -Plugins $plugins `
-    -StaleNames $stalePluginNames `
-    -Product $pluginName `
-    -Version $pluginVersion)
-
-$uninstallRegistration = Register-HsmUninstaller `
-    -Version $pluginVersion `
-    -SourceRoot $PSScriptRoot `
-    -JsAddonsPath $jsAddonsPath
-
-$oemPath = Get-WpsOemIniPath
-$oemConfigured = $false
-if ($oemPath -and (Test-Path -LiteralPath $oemPath)) {
+    Write-Host ""
+    Write-Host "WPS High School Math $pluginVersion was installed for Writer and Presentation."
+    foreach ($result in $installedResults) {
+        Write-Host ("Verified {0}: {1} files, payload {2}" -f $result.HostType, $result.FileCount, $result.PayloadSha256)
+    }
+    Write-Host "Windows uninstall entry: $script:HsmUninstallDisplayName $pluginVersion"
+    Write-Host "Restart all WPS Writer and Presentation windows to load the plugin and hide the JS debugger button."
+    Write-Host "On the first Writer and Presentation launch after an upgrade, click Confirm when WPS asks whether to trust the add-in."
     try {
-        $oemBackupPath = "$oemPath.math-plugin-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-        Copy-Item -LiteralPath $oemPath -Destination $oemBackupPath -Force
-        $oemContent = Get-Content -LiteralPath $oemPath -Raw
-        $oemContent = Set-IniValue -Content $oemContent -Section "Support" -Key "JsApiPlugin" -Value "true"
-        $oemContent = Set-IniValue -Content $oemContent -Section "Support" -Key "JsApiShowWebDebugger" -Value "false"
-        Write-Utf8TextAtomic -Path $oemPath -Content $oemContent
-        $oemConfigured = $true
+        Add-Type -AssemblyName System.Windows.Forms
+        [Windows.Forms.MessageBox]::Show(
+            "安装完成。`r`n`r`n高中数学工具全部功能永久免费，可以离线使用。`r`n`r`n卸载入口：Windows 设置 → 应用 → 已安装的应用 → WPS 高中数学工具插件。",
+            "WPS 高中数学工具插件",
+            [Windows.Forms.MessageBoxButtons]::OK,
+            [Windows.Forms.MessageBoxIcon]::Information
+        ) | Out-Null
     } catch {
-        $configurationScript = Join-Path $PSScriptRoot "configure-wps.ps1"
-        if (Test-Path -LiteralPath $configurationScript -PathType Leaf) {
-            try {
-                $arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$configurationScript`""
-                $configurationProcess = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList $arguments -Wait -PassThru
-                $oemConfigured = $configurationProcess.ExitCode -eq 0
-            } catch {
-                Write-Warning "The add-in is installed, but the optional WPS debugger-button configuration was not approved."
-            }
-        }
+        Write-Verbose "Unable to show the installation summary: $($_.Exception.Message)"
     }
-} else {
-    Write-Warning "WPS oem.ini was not found. The plugin was installed, but the JS debugger button could not be disabled."
-}
-if (-not $oemConfigured) {
-    Write-Warning "The add-in is installed and usable, but WPS may still show its JS debugger button."
-}
-
-Write-Host ""
-Write-Host "WPS High School Math $pluginVersion was installed for Writer and Presentation."
-foreach ($result in $installedResults) {
-    Write-Host ("Verified {0}: {1} files, payload {2}" -f $result.HostType, $result.FileCount, $result.PayloadSha256)
-}
-Write-Host "Machine code: $machineId"
-Write-Host "Free trial: 14 days with all features; after expiry, only Writer exam-paper tools remain available."
-Write-Host "Windows uninstall entry: $($uninstallRegistration.DisplayName) $($uninstallRegistration.Version)"
-Write-Host "Restart all WPS Writer and Presentation windows to load the plugin and hide the JS debugger button."
-Write-Host "On the first Writer and Presentation launch after an upgrade, click Confirm when WPS asks whether to trust the add-in."
-try {
-    Add-Type -AssemblyName System.Windows.Forms
-    [Windows.Forms.MessageBox]::Show(
-        "安装完成。`r`n`r`n首次打开插件后可免费试用 14 天，试用期间全部功能可用。第 15 天起，试卷功能仍可使用，其他功能需要激活。`r`n`r`n卸载入口：Windows 设置 → 应用 → 已安装的应用 → WPS 高中数学工具插件。",
-        "WPS 高中数学工具插件",
-        [Windows.Forms.MessageBoxButtons]::OK,
-        [Windows.Forms.MessageBoxIcon]::Information
-    ) | Out-Null
-} catch {
-    Write-Verbose "Unable to show the installation summary: $($_.Exception.Message)"
 }

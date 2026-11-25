@@ -264,10 +264,12 @@
         throw new Error("函数图像组件未加载，请关闭 WPS 后重新打开。");
       }
        var input;
+       var originalTarget = null;
        var existingConfig = null;
        try {
          if (root.MathFunctionDocument) {
-           existingConfig = root.MathFunctionDocument.getSelectedPlotConfig(app);
+           originalTarget = root.MathFunctionDocument.getSelectedPlot(app);
+           existingConfig = originalTarget && originalTarget.config;
          }
        } catch (_) {}
        if (existingConfig && (existingConfig.curves || existingConfig.points || existingConfig.options.monochrome || existingConfig.parameters || existingConfig.guides || existingConfig.analysis)) {
@@ -293,7 +295,7 @@
       writePlotFile(app, path, plot);
        var message;
        if (root.MathFunctionDocument) {
-         message = root.MathFunctionDocument.insertOrUpdate(app, path, plot, input).message;
+         message = root.MathFunctionDocument.insertOrUpdate(app, path, plot, input, originalTarget).message;
        } else {
          message = target === "presentation" ?
            insertIntoPresentation(app, path, plot) :

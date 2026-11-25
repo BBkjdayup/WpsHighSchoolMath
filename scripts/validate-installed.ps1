@@ -74,7 +74,7 @@ foreach ($plugin in $plugins) {
     }
 
     $versionSuffix = $pluginVersion -replace '[^A-Za-z0-9._-]', '_'
-    foreach ($pageName in @("function-plot", "license")) {
+    foreach ($pageName in @("function-plot")) {
         $pagePath = Join-Path $payloadPath "ui\$pageName-$versionSuffix.html"
         if (-not (Test-Path -LiteralPath $pagePath -PathType Leaf)) {
             throw "Installed packaged task-pane page is missing: $pagePath"

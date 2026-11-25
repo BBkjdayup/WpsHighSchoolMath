@@ -13,14 +13,9 @@ const WRITER_SOURCE_FILES = [
   "main.js",
   "manifest.xml",
   "ribbon.xml",
-  "assets/wechat-qr.jpg",
-  "assets/wechat-qr.svg",
   "js/symbols.js",
+  "js/ppt-api.js",
   "js/taskpane.js",
-  "js/license-public-key.js",
-  "js/license.js",
-  "js/vendor/tweetnacl-fast.min.js",
-  "js/vendor/TWEETNACL-LICENSE.txt",
   "js/plot-config.js",
   "js/plot-analysis.js",
   "js/plotter.js",
@@ -33,13 +28,6 @@ const WRITER_SOURCE_FILES = [
   "ui/function-plot.js",
   "ui/function-analysis.js",
   "ui/function-plot-entry.js",
-  "ui/license.css",
-  "ui/license.html",
-  "ui/license-entry.js",
-  "ui/license-ui.js",
-  "ui/tool-center.css",
-  "ui/tool-center.html",
-  "ui/tool-center.js"
 ];
 
 const PPT_SOURCE_FILES = [
@@ -47,15 +35,9 @@ const PPT_SOURCE_FILES = [
   "main.js",
   "manifest.xml",
   "ribbon.xml",
-  "assets/wechat-qr.jpg",
-  "assets/wechat-qr.svg",
   "js/symbols.js",
   "js/ppt-api.js",
   "js/taskpane.js",
-  "js/license-public-key.js",
-  "js/license.js",
-  "js/vendor/tweetnacl-fast.min.js",
-  "js/vendor/TWEETNACL-LICENSE.txt",
   "js/plot-config.js",
   "js/plot-analysis.js",
   "js/plotter.js",
@@ -68,13 +50,6 @@ const PPT_SOURCE_FILES = [
   "ui/function-plot.js",
   "ui/function-analysis.js",
   "ui/function-plot-entry.js",
-  "ui/license.css",
-  "ui/license.html",
-  "ui/license-entry.js",
-  "ui/license-ui.js",
-  "ui/tool-center.css",
-  "ui/tool-center.html",
-  "ui/tool-center.js"
 ];
 
 const TEXT_EXTENSIONS = new Set([
@@ -315,7 +290,6 @@ function scanText(source, options = {}) {
 
   const createTaskPaneExpression = /(?:^|[^A-Za-z0-9_$])CreateTaskPane(?:[^A-Za-z0-9_$]|$)/i;
   const normalizedFile = normalizeRelative(file).toLowerCase();
-  const isThirdPartyLicenseText = /(^|\/)js\/vendor\/tweetnacl-license\.txt$/.test(normalizedFile);
   if (!/(^|\/)js\/taskpane\.js$/.test(normalizedFile) && views.some(view => createTaskPaneExpression.test(view))) {
     const sourceIndex = source.toLowerCase().indexOf("createtaskpane");
     addUniqueViolation(violations, makeViolation(
@@ -364,9 +338,6 @@ function scanText(source, options = {}) {
   let absoluteMatch;
   while ((absoluteMatch = absoluteUrlExpression.exec(withoutAllowedNamespaces))) {
     const absoluteValue = absoluteMatch[0].trim();
-    if (isThirdPartyLicenseText) {
-      continue;
-    }
     if (/(^|\/)js\/taskpane\.js$/.test(normalizedFile) && /^file:\/\/\/$/i.test(absoluteValue)) {
       continue;
     }
@@ -541,11 +512,7 @@ function scanPayloadDirectory(root, options = {}) {
       const payloadManifest = JSON.parse(fs.readFileSync(payloadManifestPath, "utf8"));
       const safeVersion = String(payloadManifest.version || "").replace(/[^A-Za-z0-9._-]/g, "_");
       if (safeVersion) {
-        expected.push(
-          `ui/function-plot-${safeVersion}.html`,
-          `ui/license-${safeVersion}.html`,
-          `ui/tool-center-${safeVersion}.html`
-        );
+        expected.push("ui/function-plot-" + safeVersion + ".html");
       }
     } catch (_) {
       addUniqueViolation(violations, makeViolation("invalid-payload-manifest", "PAYLOAD-MANIFEST.json", "无法读取载荷版本白名单。"));

@@ -2,7 +2,7 @@ param(
     [string]$Destination,
     [switch]$SkipBuild,
     [switch]$SkipTests,
-    [switch]$SkipMarketing
+    [switch]$SkipMarketing # Accepted for callers of earlier releases.
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,8 +23,6 @@ if ([string]::IsNullOrWhiteSpace($Destination)) {
 $destinationFull = [IO.Path]::GetFullPath($Destination)
 $sourceRoot = Join-Path $destinationFull "01-source"
 $releaseRoot = Join-Path $destinationFull "02-current-release"
-$marketingRoot = Join-Path $destinationFull "03-marketing-deliveries"
-$referenceRoot = Join-Path $destinationFull "04-reference-materials"
 $zipPath = "$destinationFull.zip"
 $zipHashPath = "$zipPath.sha256"
 
@@ -64,19 +62,6 @@ function Invoke-ProjectScript {
     if ($LASTEXITCODE -ne 0) {
         throw "$Description failed with exit code $LASTEXITCODE."
     }
-}
-
-function Copy-FilePreservingRelativePath {
-    param(
-        [IO.FileInfo]$File,
-        [string]$BasePath,
-        [string]$TargetRoot
-    )
-
-    $relative = $File.FullName.Substring($BasePath.TrimEnd("\").Length + 1)
-    $target = Join-Path $TargetRoot $relative
-    New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
-    Copy-Item -LiteralPath $File.FullName -Destination $target -Force
 }
 
 function Remove-DirectoryInsideSource {
@@ -119,10 +104,14 @@ Assert-SafeNewDestination -Path $destinationFull
 if (Test-Path -LiteralPath $zipPath) { throw "Archive already exists: $zipPath" }
 if (Test-Path -LiteralPath $zipHashPath) { throw "Archive hash already exists: $zipHashPath" }
 
-New-Item -ItemType Directory -Path $sourceRoot, $releaseRoot, $referenceRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $sourceRoot, $releaseRoot -Force | Out-Null
 
 $rootFiles = @(
     ".gitignore",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
     "CLAUDE.md",
     "HANDOFF.md",
     "README.md",
@@ -132,7 +121,7 @@ $rootFiles = @(
     "manifest.xml",
     "ribbon.xml"
 )
-$sourceDirectories = @("assets", "js", "migration", "ppt", "probes", "scripts", "specs", "tests", "ui")
+$sourceDirectories = @("js", "ppt", "probes", "scripts", "specs", "tests", "ui", "docs")
 foreach ($path in $rootFiles + $sourceDirectories) {
     Copy-RequiredItem -RelativePath $path
 }
@@ -142,11 +131,6 @@ if (-not $SkipBuild) {
         -ScriptPath (Join-Path $sourceRoot "scripts\build-offline.ps1") `
         -Arguments @("-BuildMode", "Internal") `
         -Description "Internal offline build"
-
-    Invoke-ProjectScript `
-        -ScriptPath (Join-Path $sourceRoot "scripts\build-license-tool.ps1") `
-        -Arguments @() `
-        -Description "License tool build"
 }
 
 if (-not $SkipTests) {
@@ -165,100 +149,13 @@ $pluginArtifactNames = @(
 )
 foreach ($name in $pluginArtifactNames) {
     $path = Join-Path $sourceRelease $name
-    if (Test-Path -LiteralPath $path -PathType Leaf) {
-        Copy-Item -LiteralPath $path -Destination (Join-Path $releaseRoot $name) -Force
-    }
+    if ($SkipBuild) { continue }
+    Copy-Item -LiteralPath $path -Destination (Join-Path $releaseRoot $name) -ErrorAction Stop
 }
 
-$licenseToolPattern = "WpsHighSchoolMath-LicenseTool-${version}*"
-Get-ChildItem -LiteralPath $sourceRelease -File -Filter $licenseToolPattern -ErrorAction SilentlyContinue |
-    Where-Object { $_.Extension -in @(".exe", ".sha256") } |
-    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $releaseRoot $_.Name) -Force }
-
-$originalRelease = Join-Path $projectRoot "release"
-foreach ($sampleName in @("scheme-b-writer-regression.docx", "scheme-b-ppt-regression.pptx")) {
-    $sourceSample = switch ($sampleName) {
-        "scheme-b-writer-regression.docx" { Join-Path $originalRelease "scheme-b-Writer-regression-copy.docx" }
-        default { Join-Path $originalRelease "scheme-b-PPT-regression-copy.pptx" }
-    }
-    if (Test-Path -LiteralPath $sourceSample -PathType Leaf) {
-        Copy-Item -LiteralPath $sourceSample -Destination (Join-Path $referenceRoot $sampleName) -Force
-    }
-}
-
-# The original regression files use Chinese names. Copy them without embedding
-# non-ASCII literals in this Windows PowerShell 5 compatible script.
-Get-ChildItem -LiteralPath $originalRelease -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.Extension -in @(".docx", ".pptx") } |
-    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $referenceRoot $_.Name) -Force }
-
-Get-ChildItem -LiteralPath $projectRoot -File -Filter "WPS*.png" -ErrorAction SilentlyContinue |
-    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $referenceRoot $_.Name) -Force }
-
-$playwrightOutput = Join-Path $projectRoot "output\playwright"
-if (Test-Path -LiteralPath $playwrightOutput -PathType Container) {
-    Copy-Item -LiteralPath $playwrightOutput -Destination (Join-Path $referenceRoot "ui-screenshots") -Recurse -Force
-}
-
-if (-not $SkipMarketing) {
-    New-Item -ItemType Directory -Path $marketingRoot -Force | Out-Null
-    $outputRoot = Join-Path $projectRoot "output"
-    Get-ChildItem -LiteralPath $outputRoot -File -Recurse -Filter "*delivery.zip" -ErrorAction SilentlyContinue |
-        ForEach-Object { Copy-FilePreservingRelativePath -File $_ -BasePath $outputRoot -TargetRoot (Join-Path $marketingRoot "archives") }
-
-    Get-ChildItem -LiteralPath $outputRoot -File -Recurse -ErrorAction SilentlyContinue |
-        Where-Object {
-            $_.Extension -in @(".md", ".json", ".py", ".ps1") -and
-            $_.FullName -notmatch '(?i)\\vendor\\|\\__pycache__\\|LicenseTool-.*-staging'
-        } |
-        ForEach-Object { Copy-FilePreservingRelativePath -File $_ -BasePath $outputRoot -TargetRoot (Join-Path $marketingRoot "sources-and-plans") }
-}
-
-# The license-tool build creates an 80+ MiB staging directory. It is a build
-# cache and must not be part of the source handoff.
 Remove-DirectoryInsideSource -Path (Join-Path $sourceRoot "output")
-Get-ChildItem -LiteralPath $sourceRelease -File -Filter "WpsHighSchoolMath-LicenseTool-*" -ErrorAction SilentlyContinue |
-    Remove-Item -Force
 
 Copy-Item -LiteralPath (Join-Path $sourceRoot "HANDOFF.md") -Destination (Join-Path $destinationFull "README-FIRST.md") -Force
-
-$privateKeyPath = Join-Path $env:APPDATA "WpsHighSchoolMathIssuer\ed25519-private.pem"
-$historyPath = Join-Path $env:APPDATA "WpsHighSchoolMathIssuer\issuance-history.csv"
-$statusLines = @(
-    "Product: $product",
-    "Version: $version",
-    "Handoff date: $([DateTime]::Today.ToString('yyyy-MM-dd'))",
-    "Source build: $(if ($SkipBuild) { 'skipped' } else { 'passed' })",
-    "Source tests: $(if ($SkipTests) { 'skipped' } else { 'passed' })",
-    "Release channel: internal-test",
-    "Authenticode: not a signed commercial release",
-    "License public key fingerprint: 369DA249CAD36B33",
-    "Owner private key present during packaging: $(Test-Path -LiteralPath $privateKeyPath)",
-    "Private key included in package: False",
-    "Issuance history present during packaging: $(Test-Path -LiteralPath $historyPath)",
-    "Issuance history included in package: False",
-    "Original Git history included: False",
-    "Handoff Git baseline: reconstructed from the current file snapshot"
-)
-[IO.File]::WriteAllLines((Join-Path $destinationFull "HANDOFF-STATUS.txt"), $statusLines, (New-Object Text.UTF8Encoding($false)))
-
-$selectionLines = @(
-    "INCLUDED",
-    "- Runtime source for Writer and Presentation",
-    "- Build, install, uninstall, license, integrity, and validation scripts",
-    "- Automated tests, compatibility fixtures, specifications, and probes",
-    "- Fresh internal $version plugin build and issuer tool",
-    "- Regression documents, UI screenshots, product reference images",
-    "- Final social-media delivery archives and their source plans/scripts",
-    "",
-    "EXCLUDED",
-    "- Original .git directory: no commits and hundreds of MiB of temporary objects",
-    "- Issuer private key and real issuance-history.csv",
-    "- Old release versions and expanded old installers",
-    "- Video vendor runtimes, caches, segments, temporary audio, and duplicate render intermediates",
-    "- Local editor settings, Playwright session state, logs, .tmp folders, root .obj/.lib/.exp files"
-)
-[IO.File]::WriteAllLines((Join-Path $destinationFull "PACKAGE-SELECTION.txt"), $selectionLines, (New-Object Text.UTF8Encoding($false)))
 
 Assert-NoPrivateMaterial
 

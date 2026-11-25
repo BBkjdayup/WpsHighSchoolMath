@@ -1,6 +1,7 @@
 var currentPlot = null;
 var currentConfig = null;
 var editingSelectedPlot = false;
+var loadedTarget = null;
 var renderedEditingMode = null;
 var selectionMonitorId = null;
 var previewTimer = null;
@@ -36,15 +37,16 @@ function setStatus(message, isError) {
   node("status").className = isError ? "status error" : "status";
 }
 
-function setEditingMode(isEditing) {
+function setEditingMode(isEditing, changed) {
   editingSelectedPlot = Boolean(isEditing);
-  if (renderedEditingMode === editingSelectedPlot) {
+  var mode = changed ? "changed" : (editingSelectedPlot ? "edit" : "insert");
+  if (renderedEditingMode === mode) {
     return;
   }
-  renderedEditingMode = editingSelectedPlot;
-  node("editModeBadge").textContent = editingSelectedPlot ? "编辑所选图像" : "新建图像";
+  renderedEditingMode = mode;
+  node("editModeBadge").textContent = changed ? "所选图像已改变" : (editingSelectedPlot ? "编辑所选图像" : "新建图像");
   node("editModeBadge").className = editingSelectedPlot ? "mode-badge editing" : "mode-badge";
-  node("insertButton").textContent = editingSelectedPlot ? "更新所选图像" : "插入新图像";
+  node("insertButton").textContent = changed ? "重新载入所选图像" : (editingSelectedPlot ? "更新所选图像" : "插入新图像");
 }
 
 function expressionInputs() {
@@ -296,6 +298,9 @@ function refreshFavorites(selectedId) {
 
 function initializeLibrary() {
   plotLibrary = window.MathPlotLibrary.forWindow(window);
+  node("storageLifetime").textContent = plotLibrary.sessionOnly ?
+    "当前收藏只在本次 WPS 会话中保存。关闭 WPS 前请导出备份文字。" :
+    "收藏保存在当前环境，升级或换电脑前请导出备份文字。";
   function action(id, callback) {
     node(id).addEventListener("click", function () {
       try { callback(); } catch (error) { setLibraryStatus(error.message || String(error), true); }
@@ -326,6 +331,7 @@ function initializeLibrary() {
     setLibraryStatus("已刷新，共 " + items.length + " 个方案。", false);
   });
   action("exportFavoritesButton", function () {
+    node("backupSettings").open = true;
     node("favoriteBackup").value = plotLibrary.exportText();
     node("favoriteBackup").focus();
     node("favoriteBackup").select();
@@ -474,8 +480,9 @@ function synchronizeSelectionMode() {
   } catch (_) {
     selected = null;
   }
-  setEditingMode(Boolean(selected));
-  return Boolean(selected);
+  var hasTarget = Boolean(loadedTarget && selected);
+  setEditingMode(hasTarget, hasTarget && !window.MathFunctionDocument.samePlot(loadedTarget, selected));
+  return editingSelectedPlot;
 }
 
 function startSelectionMonitor() {
@@ -522,6 +529,7 @@ function loadSelectedPlot(showMissingMessage) {
   try {
     var selected = window.MathFunctionDocument.getSelectedPlot(app);
     if (!selected) {
+      if (showMissingMessage) { loadedTarget = null; }
       setEditingMode(false);
       if (showMissingMessage) {
         setStatus("请先在文档或幻灯片中选中由本插件生成的函数图像。", true);
@@ -529,6 +537,7 @@ function loadSelectedPlot(showMissingMessage) {
       return false;
     }
     if (!applyConfig(selected.config, true)) { return false; }
+    loadedTarget = selected;
     setStatus("已载入所选函数图像，可修改后点击“更新所选图像”。", false);
     return true;
   } catch (error) {
@@ -538,8 +547,8 @@ function loadSelectedPlot(showMissingMessage) {
 }
 
 function insertCurrentPlot() {
-  if (window.MathLicense && !window.MathLicense.requirePaidFeature("插入函数图像")) {
-    setStatus("试用已到期，请激活后继续插入函数图像。", true);
+  if (renderedEditingMode === "changed") {
+    loadSelectedPlot(true);
     return;
   }
   if (!window.MathFunctionDocument) {
@@ -557,16 +566,19 @@ function insertCurrentPlot() {
   }
   var path = "";
   try {
+    // A click labelled "update" always applies to the picture whose settings were loaded.
+    var target = editingSelectedPlot ? loadedTarget : null;
     path = tempFilePath(app);
     writePlotFile(app, path);
-    var result = window.MathFunctionDocument.insertOrUpdate(app, path, currentPlot, currentConfig);
+    var result = window.MathFunctionDocument.insertOrUpdate(app, path, currentPlot, currentConfig, target);
     var placementMessage = "";
     if (!result.updated && result.host === "presentation" && result.placement) {
       placementMessage = result.placement.overlapArea > 0 ?
         " 当前页没有完整空白区域，已采用最低重叠位置。" :
         " 已自动避开当前页已有内容。";
     }
-    setEditingMode(result.updated || result.host === "presentation");
+    loadedTarget = result.host === "presentation" ? window.MathFunctionDocument.getSelectedPlot(app) : null;
+    setEditingMode(Boolean(loadedTarget));
     setStatus(result.message + placementMessage, false);
   } catch (error) {
     setStatus("无法插入函数图像：" + error.message, true);
@@ -637,7 +649,7 @@ window.addEventListener("DOMContentLoaded", function () {
     setStatus("可输入多条函数并设置坐标范围；选中旧图后可点“载入所选图像”重新编辑。", false);
   }
   startSelectionMonitor();
-  if (window.MathTaskPanes && !window.HSM_TASK_PANE_NAME) {
+  if (window.MathTaskPanes) {
     window.MathTaskPanes.signalReady("function-plot");
   }
 });

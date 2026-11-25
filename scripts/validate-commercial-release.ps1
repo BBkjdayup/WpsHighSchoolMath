@@ -47,7 +47,7 @@ function Assert-UnifiedRibbon {
     Assert-ReleaseCondition ($tabs.Count -eq 1) "$Path must contain exactly one add-in tab."
     Assert-ReleaseCondition ($tabs[0].GetAttribute("label") -eq $expectedLabel) "$Path has the wrong unified tab label."
     Assert-ReleaseCondition (@($ribbon.SelectNodes("//*[@id='function_plot']")).Count -eq 1) "$Path must contain the function editor button."
-    Assert-ReleaseCondition (@($ribbon.SelectNodes("//*[@id='authorization_center']")).Count -eq 1) "$Path must contain the authorization-center button."
+    Assert-ReleaseCondition (@($ribbon.SelectNodes("//*[@id='authorization_center']")).Count -eq 0) "$Path contains a retired activation command."
 }
 
 function Assert-PackagedPayload {
@@ -64,19 +64,23 @@ function Assert-PackagedPayload {
         -ExpectedVersion $version `
         -ExpectedHostType $HostType `
         -ExpectedManifestSha256 $ManifestSha256
-    foreach ($relative in @(
-        "ui\function-plot-$versionSuffix.html",
-        "ui\license-$versionSuffix.html",
-        "ui\tool-center-$versionSuffix.html",
-        "ui\function-plot.html",
-        "ui\license.html",
-        "ui\tool-center.html",
-        "js\taskpane.js",
-        "js\license-public-key.js",
-        "js\vendor\tweetnacl-fast.min.js",
-        "js\vendor\TWEETNACL-LICENSE.txt"
-    )) {
-        Assert-ReleaseCondition (Test-Path -LiteralPath (Join-Path $PayloadPath $relative) -PathType Leaf) "Packaged task-pane file is missing: $relative"
+    foreach ($relative in @("ui\function-plot-$versionSuffix.html", "ui\function-plot.html", "js\taskpane.js", "js\ppt-api.js")) {
+        Assert-ReleaseCondition (Test-Path -LiteralPath (Join-Path $PayloadPath $relative) -PathType Leaf) "Packaged file is missing: $relative"
+    }
+    $payloadRoot = [IO.Path]::GetFullPath($PayloadPath).TrimEnd('\') + '\'
+    foreach ($html in Get-ChildItem -LiteralPath $PayloadPath -Filter "*.html" -File -Recurse) {
+        $markup = [IO.File]::ReadAllText($html.FullName)
+        $references = [regex]::Matches($markup, '(?i)\b(?:src|href)\s*=\s*["'']([^"'']+)["'']')
+        foreach ($ref in $references) {
+            $relative = ($ref.Groups[1].Value -split '[?#]')[0]
+            if (-not $relative) { continue }
+            $resource = [IO.Path]::GetFullPath((Join-Path $html.DirectoryName $relative))
+            Assert-ReleaseCondition ($resource.StartsWith($payloadRoot, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $resource -PathType Leaf)) "Unresolved resource in $($html.Name): $relative"
+        }
+    }
+    foreach ($file in Get-ChildItem -LiteralPath $PayloadPath -Recurse -File) {
+        $content = [IO.File]::ReadAllText($file.FullName)
+        Assert-ReleaseCondition ($content -notmatch 'MathLicense|requirePaidFeature|hsmath_(?:license|trial)|machine-id\.txt|authorization_center|wechat-qr') "Retired activation content in $($file.FullName)"
     }
     Assert-ReleaseCondition (-not (Test-Path -LiteralPath (Join-Path $PayloadPath "entry.js"))) "$Plugin still contains entry.js."
     Assert-ReleaseCondition (-not (Test-Path -LiteralPath (Join-Path $PayloadPath "runtime"))) "$Plugin still contains a runtime helper directory."
@@ -102,12 +106,6 @@ Assert-UnifiedRibbon -Path (Join-Path $projectRoot "ppt\ribbon.xml")
 $writerRibbonSource = Get-Content -LiteralPath (Join-Path $projectRoot "js\ribbon.js") -Raw -Encoding UTF8
 $pptRibbonSource = Get-Content -LiteralPath (Join-Path $projectRoot "js\ribbon-ppt.js") -Raw -Encoding UTF8
 $taskPaneSource = Get-Content -LiteralPath (Join-Path $projectRoot "js\taskpane.js") -Raw -Encoding UTF8
-$licenseSource = Get-Content -LiteralPath (Join-Path $projectRoot "js\license.js") -Raw -Encoding UTF8
-$licensePublicKeySource = Get-Content -LiteralPath (Join-Path $projectRoot "js\license-public-key.js") -Raw -Encoding UTF8
-$licenseHtmlSource = Get-Content -LiteralPath (Join-Path $projectRoot "ui\license.html") -Raw -Encoding UTF8
-$licenseEntrySource = Get-Content -LiteralPath (Join-Path $projectRoot "ui\license-entry.js") -Raw -Encoding UTF8
-$toolCenterSource = Get-Content -LiteralPath (Join-Path $projectRoot "ui\tool-center.html") -Raw -Encoding UTF8
-$licenseUiSource = Get-Content -LiteralPath (Join-Path $projectRoot "ui\license-ui.js") -Raw -Encoding UTF8
 $documentSource = Get-Content -LiteralPath (Join-Path $projectRoot "js\function-plot-document.js") -Raw -Encoding UTF8
 $pptApiSource = Get-Content -LiteralPath (Join-Path $projectRoot "js\ppt-api.js") -Raw -Encoding UTF8
 $installerSource = Get-Content -LiteralPath (Join-Path $projectRoot "scripts\offline-install.ps1") -Raw -Encoding UTF8
@@ -120,19 +118,6 @@ $wpsConfigurationSource = Get-Content -LiteralPath (Join-Path $projectRoot "scri
 
 Assert-ReleaseCondition ($writerRibbonSource.Contains("openPackaged") -and $writerRibbonSource.Contains('role: "writer"')) "Writer does not use the packaged task-pane manager."
 Assert-ReleaseCondition ($pptRibbonSource.Contains("openPackaged") -and $pptRibbonSource.Contains('role: "presentation"')) "Presentation does not use the packaged task-pane manager."
-Assert-ReleaseCondition ($licenseSource.Contains("MathTaskPanes.openPackaged") -and -not ($licenseSource -match '\balert\s*\(') -and
-    -not ($licenseSource -match '\bprompt\s*\(') -and -not $licenseSource.Contains("InputBox")) "Authorization center is not a formal packaged panel."
-Assert-ReleaseCondition ($licenseSource.Contains("HSM2") -and $licenseSource.Contains("nacl.sign.detached.verify") -and
-    -not $licenseSource.Contains("WPS-HIGH-SCHOOL-MATH-LOCAL-LICENSE-2026") -and
-    -not $licenseSource.Contains("createLicenseCode")) "Authorization must use public-key verification without issuer secrets."
-Assert-ReleaseCondition ($licensePublicKeySource.Contains("MathLicensePublicKey")) "Ed25519 public-key module is missing."
-Assert-ReleaseCondition ($licenseSource.Contains('wechat: "********"')) "Configured WeChat contact is missing."
-foreach ($controlId in @("copyMachineCode", "pasteActivationCode", "expiryTime", "wechatNumber", "copyWechatNumber", "qqNumber", "copyQqNumber")) {
-    Assert-ReleaseCondition ($licenseEntrySource.Contains("id=`"$controlId`"")) "Authorization-panel control is missing: $controlId"
-}
-Assert-ReleaseCondition ($licenseHtmlSource.Contains("license-entry.js")) "Authorization compatibility page does not load its panel view."
-Assert-ReleaseCondition ($toolCenterSource.Contains('data-view="function-plot"') -and $toolCenterSource.Contains('data-view="license"')) "Shared tool-center tabs are incomplete."
-Assert-ReleaseCondition ($licenseUiSource.Contains('MathTaskPanes.signalReady("license")')) "Authorization panel does not signal ready."
 Assert-ReleaseCondition ($taskPaneSource.Contains("openPackaged") -and $taskPaneSource.Contains("PAGE_MAP") -and
     $taskPaneSource.Contains("versionedPagePath")) "Packaged task-pane whitelist is incomplete."
 foreach ($forbidden in @("openLocalEditor", "localhost", "127.0.0.1", "ShellExecute", "OAAssist", "XMLHttpRequest", "WpsHighSchoolMathEditorHost")) {
@@ -141,10 +126,8 @@ foreach ($forbidden in @("openLocalEditor", "localhost", "127.0.0.1", "ShellExec
 Assert-ReleaseCondition ($documentSource.Contains("HSM_FUNCTION_PLOT_V1:") -and $documentSource.Contains("insertOrUpdate")) "Editable function-plot metadata is incomplete."
 Assert-ReleaseCondition ($pptApiSource.Contains("findBestPlacement") -and $pptApiSource.Contains("measureOverlap")) "Presentation auto-placement engine is incomplete."
 Assert-ReleaseCondition ($installerSource.Contains("Invoke-HsmInstallTransaction") -and $installerSource.Contains("Test-HsmPayload")) "Transactional payload install gate is missing."
-Assert-ReleaseCondition ($installerSource.Contains("Test-WpsProcessHasUserWindow") -and
-    $installerSource.Contains("MainWindowHandle") -and $installerSource.Contains("Stop-WpsBackgroundHosts -Processes `$wpsProcesses")) "Installer does not distinguish visible WPS documents from headless startup processes."
-Assert-ReleaseCondition ($uninstallerSource.Contains("Test-WpsProcessHasUserWindow") -and
-    $uninstallerSource.Contains("MainWindowHandle") -and $uninstallerSource.Contains("Stop-WpsBackgroundHosts -Processes `$wpsProcesses")) "Uninstaller does not distinguish visible WPS documents from headless startup processes."
+Assert-ReleaseCondition ($installerSource.Contains("Assert-HsmWpsClosed") -and $uninstallerSource.Contains("Assert-HsmWpsClosed") -and
+    $installerSource -notmatch "Stop-WpsBackgroundHosts" -and $uninstallerSource -notmatch "Stop-WpsBackgroundHosts") "WPS maintenance must protect both visible and background document sessions."
 Assert-ReleaseCondition ($bootstrapSource.Contains("Get-FriendlyInstallerMessage") -and
     $bootstrapSource.Contains("System.Windows.Forms") -and $bootstrapSource.Contains("WpsHighSchoolMath\Logs") -and
     $bootstrapSource.Contains("Remove-SafeExtractionDirectory")) "Installer failure dialog, logging, or temporary-directory cleanup is missing."
@@ -152,14 +135,13 @@ Assert-ReleaseCondition ($builderSource.Contains("ShowInstallProgramWindow=0") -
     $builderSource.Contains('FILE2="bootstrap.ps1"') -and $builderSource.Contains('-STA -File "%~dp0bootstrap.ps1"')) "EXE installer does not launch the failure-aware bootstrap without a transient console window."
 Assert-ReleaseCondition ($installerSource.Contains("Update-AuthorizationCache") -and $installerSource.Contains("PreserveApproval")) "Authorization-cache integrity policy is missing."
 Assert-ReleaseCondition ($installerSource.Contains("Stop-LocalEditorHosts") -and $uninstallerSource.Contains("Stop-LocalEditorHosts")) "Legacy EditorHost upgrade cleanup is missing."
-Assert-ReleaseCondition (-not $installerSource.Contains('$installedLicensePath')) "Installer must not mutate installed add-in source files."
-Assert-ReleaseCondition ($licenseSource.Contains("var TRIAL_DAYS = 14") -and $licenseSource.Contains('planLabel: trial.active ? "14 天全功能试用"')) "Commercial trial must remain a 14-day full-feature trial."
+Assert-ReleaseCondition ($installerSource -notmatch 'machine-id\.txt|trial_started|installedLicensePath') "Installer must not mutate installed add-in source files."
 Assert-ReleaseCondition ($installerSource.Contains("Register-HsmUninstaller") -and $uninstallRegistrationSource.Contains("Windows\CurrentVersion\Uninstall\WpsHighSchoolMath")) "Windows installed-app registration is missing."
 Assert-ReleaseCondition (-not $installerSource.Contains("Test-Administrator") -and -not $installerSource.Contains(' -Elevated')) "Per-user installation must not elevate the entire installer."
 Assert-ReleaseCondition ($installerSource.Contains("configure-wps.ps1") -and $wpsConfigurationSource.Contains("JsApiShowWebDebugger")) "Optional elevated WPS configuration step is missing."
 Assert-ReleaseCondition ($uninstallRegistrationSource.Contains("QuietUninstallString") -and $uninstallRegistrationSource.Contains("卸载高中数学插件.cmd")) "Windows uninstall commands or Start-menu entry are missing."
 Assert-ReleaseCondition ($uninstallerSource.Contains("Remove-HsmAuthorizationEntries") -and $uninstallerSource.Contains("Unregister-HsmUninstaller")) "Uninstaller does not remove its WPS authorization cache and Windows registration."
-Assert-ReleaseCondition ($uninstallCleanupSource.Contains('Programs\WpsHighSchoolMath') -and $uninstallCleanupSource.Contains("Remove-Item")) "Restricted uninstaller self-cleanup is missing."
+Assert-ReleaseCondition ($uninstallCleanupSource.Contains('WpsHighSchoolMath-Uninstalling-') -and $uninstallCleanupSource.Contains("Remove-Item")) "Restricted uninstaller self-cleanup is missing."
 
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 Assert-ReleaseCondition ([int]$manifest.schemaVersion -eq 3) "Release manifest schema must be version 3."
@@ -177,12 +159,10 @@ if ($RequireSignature) {
 Assert-ReleaseCondition ([bool]$manifest.taskPanes.enabled -and [string]$manifest.taskPanes.source -eq "packaged-file") "Packaged-file task panes are not declared."
 Assert-ReleaseCondition ([bool]$manifest.taskPanes.versionedHtml -and [string]$manifest.taskPanes.readyTransport -eq "PluginStorage") "Task-pane cache or ready contract is invalid."
 Assert-ReleaseCondition (-not [bool]$manifest.taskPanes.localHttp -and -not [bool]$manifest.taskPanes.auxiliaryExecutables) "Release still declares local HTTP or auxiliary executables."
-Assert-ReleaseCondition (@($manifest.taskPanes.allowedPages).Count -eq 3 -and
-    @($manifest.taskPanes.allowedPages) -contains "tool-center" -and
-    @($manifest.taskPanes.allowedPages) -contains "function-plot" -and @($manifest.taskPanes.allowedPages) -contains "license") "Task-pane page whitelist is invalid."
+Assert-ReleaseCondition (@($manifest.taskPanes.allowedPages).Count -eq 1 -and $manifest.taskPanes.allowedPages[0] -eq "function-plot") "Unexpected task-pane pages."
 Assert-ReleaseCondition ([bool]$manifest.featureDecisions.unifiedRibbon -and [bool]$manifest.featureDecisions.fullFunctionEditor -and
-    [bool]$manifest.featureDecisions.formalAuthorizationPanel -and [bool]$manifest.featureDecisions.singleToolCenterPane -and
-    [bool]$manifest.featureDecisions.packagedFileTaskPanes -and [bool]$manifest.featureDecisions.asymmetricOfflineLicensing -and
+    [bool]$manifest.featureDecisions.freeEdition -and [bool]$manifest.featureDecisions.singleFunctionPane -and
+    [bool]$manifest.featureDecisions.packagedFileTaskPanes -and
     [bool]$manifest.featureDecisions.windowsUninstallRegistration) "Required feature decisions are missing."
 Assert-ReleaseCondition (-not [bool]$manifest.featureDecisions.onDemandLoopbackEditorHost -and
     -not [bool]$manifest.featureDecisions.localHttp -and -not [bool]$manifest.featureDecisions.auxiliaryExecutables) "Feature decisions still allow a loopback helper."
@@ -251,15 +231,24 @@ try {
     $writerFolder = "payload/${pluginName}_${version}"
     $pptFolder = "payload/${pptPluginName}_${version}"
     foreach ($requiredEntry in @(
-        "BUILD-INFO.json", "configure-wps.ps1", "install.cmd", "install.ps1", "uninstall.cmd", "uninstall.ps1", "uninstall-cleanup.ps1", "uninstall-registration.ps1", "validate-installed.ps1", "payload-integrity.ps1",
-        "$writerFolder/PAYLOAD-MANIFEST.json", "$writerFolder/ui/function-plot-$versionSuffix.html", "$writerFolder/ui/license-$versionSuffix.html", "$writerFolder/ui/tool-center-$versionSuffix.html",
-        "$pptFolder/PAYLOAD-MANIFEST.json", "$pptFolder/ui/function-plot-$versionSuffix.html", "$pptFolder/ui/license-$versionSuffix.html", "$pptFolder/ui/tool-center-$versionSuffix.html"
+        "LICENSE", "THIRD_PARTY_NOTICES.md", "BUILD-INFO.json", "configure-wps.ps1", "install.cmd", "install.ps1", "uninstall.cmd", "uninstall.ps1", "uninstall-cleanup.ps1", "uninstall-registration.ps1", "addin-maintenance.ps1", "validate-installed.ps1", "payload-integrity.ps1",
+        "$writerFolder/PAYLOAD-MANIFEST.json", "$writerFolder/ui/function-plot-$versionSuffix.html",
+        "$pptFolder/PAYLOAD-MANIFEST.json", "$pptFolder/ui/function-plot-$versionSuffix.html"
     )) {
         Assert-ReleaseCondition ($entryNames -contains $requiredEntry) "ZIP payload entry is missing: $requiredEntry"
     }
+    $stagedFiles = @(Get-ChildItem -LiteralPath $stagingPath -Recurse -File)
+    $zipFiles = @(Get-ChildItem -LiteralPath $extractRoot -Recurse -File)
+    Assert-ReleaseCondition ($zipFiles.Count -eq $stagedFiles.Count) "ZIP file count differs from staging."
+    foreach ($stagedFile in $stagedFiles) {
+        $relativePath = $stagedFile.FullName.Substring($stagingPath.TrimEnd('\').Length + 1)
+        $packed = Join-Path $extractRoot $relativePath
+        Assert-ReleaseCondition ((Test-Path -LiteralPath $packed -PathType Leaf) -and
+            (Get-HsmSha256 $packed) -eq (Get-HsmSha256 $stagedFile.FullName)) "ZIP bytes differ for $relativePath"
+    }
     foreach ($entryName in $entryNames) {
         $normalized = $entryName.ToLowerInvariant()
-        Assert-ReleaseCondition ($normalized -notmatch '\.(pem|key|pfx|p12)$' -and
+        Assert-ReleaseCondition ($normalized -notmatch 'license[-_](tool|issuer|keygen)|wechat-qr|tweetnacl|tool-center|machine-id\.txt' -and $normalized -notmatch '\.(pem|key|pfx|p12)$' -and
             $normalized -notmatch '(^|/)(private.*key|key.*private)') "ZIP contains private licensing material: $entryName"
         if ($normalized.StartsWith("payload/")) {
             Assert-ReleaseCondition ($normalized -notmatch '(^|/)entry\.js$' -and $normalized -notmatch '(^|/)runtime/' -and

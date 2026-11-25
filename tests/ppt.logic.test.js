@@ -88,9 +88,11 @@ function createPptContext(hasSelectionText = true, options = {}) {
     },
     PluginStorage: {
       getItem(key) {
+        if (/^hsmath_(?:trial|license|machine)/.test(key)) { calls.push(["legacy-read", key]); }
         return storage[key] || "";
       },
       setItem(key, value) {
+        if (/^hsmath_(?:trial|license|machine)/.test(key)) { calls.push(["legacy-write", key]); }
         storage[key] = value;
       }
     },
@@ -134,7 +136,6 @@ function createPptContext(hasSelectionText = true, options = {}) {
   vm.runInContext(readProjectFile("js/symbols.js"), context);
   vm.runInContext(readProjectFile("js/ppt-api.js"), context);
   vm.runInContext(readProjectFile("js/taskpane.js"), context);
-  vm.runInContext(readProjectFile("js/license.js"), context);
   vm.runInContext(readProjectFile("js/ribbon-ppt.js"), context);
   return { context, calls, selectedTextRange, insertedRanges, textboxRanges, slide };
 }
@@ -187,75 +188,30 @@ function createPptContext(hasSelectionText = true, options = {}) {
   const localEditorCall = calls.find((call) => call[0] === "openPackaged");
   assert(localEditorCall);
   assert.equal(localEditorCall[1].role, "presentation");
-  assert.equal(localEditorCall[1].name, "tool-center");
-  assert.equal(localEditorCall[1].view, "function-plot");
+  assert.equal(localEditorCall[1].name, "function-plot");
 }
 
-{
-  const { context, calls, selectedTextRange } = createPptContext(true, {
-    storage: {
-      hsmath_machine_id_v1: "HSMABC1234567",
-      hsmath_trial_started_v1: "2026-01-01"
-    }
-  });
-  context.MathTaskPanes.openPackaged = function (options) {
-    calls.push(["openPackaged", options]);
-    return true;
-  };
-  context.OnAction({ Id: "sym_pi" });
-  assert.equal(selectedTextRange.Text, "A");
-  const open = calls.find((call) => call[0] === "openPackaged");
-  assert(open);
-  assert.equal(open[1].role, "presentation");
-  assert.equal(open[1].name, "tool-center");
-  assert.equal(open[1].view, "license");
-  assert(!calls.some((call) => call[0] === "alert"));
-}
+for (const storage of [
+  {}, { hsmath_trial_started_v1: new Date().toISOString().slice(0, 10) },
+  { hsmath_trial_started_v1: "2000-01-01" },
+  { hsmath_machine_id_v1: "HSMTEST000001", hsmath_license_v1: "previously-purchased-fixture" }
+]) {
+  const { context, calls } = createPptContext(true, { storage });
+  const commands = [];
+  context.MathTaskPanes.openPackaged = options => { commands.push(options.name); return true; };
+  assert.equal(context.OnAddinLoad({}), true);
+  assert.equal(context.OnAction({ Id: "sym_pi" }), true);
+  assert(calls.some(call => call[0] === "InsertAfter" && call[1] === "π"));
 
-{
-  const { context, calls } = createPptContext(true, {
-    storage: {
-      hsmath_machine_id_v1: "HSMABC1234567",
-      hsmath_trial_started_v1: "2026-01-01"
-    }
-  });
-  context.MathTaskPanes.openPackaged = function (options) {
-    calls.push(["openPackaged", options]);
-    return true;
-  };
-  context.OnAction({ Id: "function_plot" });
-  const open = calls.find((call) => call[0] === "openPackaged");
-  assert(open);
-  assert.equal(open[1].name, "tool-center");
-  assert.equal(open[1].view, "license");
-  assert(!calls.some((call) => call[0] === "alert"));
-  assert(!calls.some((call) => call[0] === "CreateTaskPane" && call[1].includes("hsmMode=function-plot")));
-}
-
-{
-  const { context, calls } = createPptContext(true, {
-    storage: {
-      hsmath_machine_id_v1: "HSMABC1234567",
-      hsmath_trial_started_v1: "2026-01-01"
-    }
-  });
-  context.MathTaskPanes.openPackaged = function (options) {
-    calls.push(["openPackaged", options]);
-    return true;
-  };
-  context.OnAction({ Id: "authorization_center" });
-  const open = calls.find((call) => call[0] === "openPackaged");
-  assert(open);
-  assert.equal(open[1].role, "presentation");
-  assert.equal(open[1].name, "tool-center");
-  assert.equal(open[1].view, "license");
-  assert(!calls.some((call) => call[0] === "alert"));
+  assert.equal(context.OnAction({ Id: "function_plot" }), true);
+  assert.deepStrictEqual(commands, ["function-plot"]);
+  assert(!("authorization_center" in context.COMMANDS));
+  assert(!calls.some(call => call[0] === "legacy-read" || call[0] === "legacy-write"));
 }
 
 {
   const { context } = createPptContext(false);
   context.window.Application.ActivePresentation = null;
-  assert.equal(context.OnGetEnabled({ Id: "authorization_center" }), true);
   assert.equal(context.OnGetEnabled({ Id: "sym_pi" }), false);
 }
 

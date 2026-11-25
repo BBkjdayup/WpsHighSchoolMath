@@ -8,7 +8,8 @@ if ($parseErrors.Count -gt 0) {
     throw ($parseErrors | Out-String)
 }
 
-$requiredFunctions = @("Write-Utf8TextAtomic", "Set-ObjectPropertyValue", "Update-AuthorizationCache")
+. (Join-Path (Split-Path -Parent $installerPath) "addin-maintenance.ps1")
+$requiredFunctions = @("Set-ObjectPropertyValue", "Update-AuthorizationCache")
 $functionDefinitions = @(
     $ast.FindAll({
         param($node)

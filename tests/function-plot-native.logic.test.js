@@ -180,7 +180,7 @@ function createContext(app, answers) {
 {
   const { context, alerts } = createContext({}, []);
   context.window.MathFunctionDocument = {
-    getSelectedPlotConfig() { return { curves: [{}], options: {} }; }
+    getSelectedPlot() { return { config: { curves: [{}], options: {} } }; }
   };
   assert.equal(context.MathFunctionPlot.openQuickWriter({}), false);
   assert(alerts.some(message => message.includes("旧图已保留")));
@@ -189,7 +189,7 @@ function createContext(app, answers) {
 for (const extra of [{ parameters: { a: { value: 1 } } }, { guides: [{ axis: "x", expression: "1" }] }, { analysis: { tangent: { curve: 0, x: "1" } } }]) {
   const { context, alerts } = createContext({}, []);
   context.window.MathFunctionDocument = {
-    getSelectedPlotConfig() { return { ...extra, options: {} }; }
+    getSelectedPlot() { return { config: { ...extra, options: {} } }; }
   };
   assert.equal(context.MathFunctionPlot.openQuickWriter({}), false);
   assert(alerts.some(message => message.includes("旧图已保留")));
