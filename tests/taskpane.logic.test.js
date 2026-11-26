@@ -110,6 +110,10 @@ for (const role of ["writer", "presentation"]) {
   assert.equal(api.openPackaged(options), true);
   assert.equal(panes["pane-1"].Visible, true);
   assert.equal(calls.length, 1);
+  location.toString = () => url;
+  assert.equal(api.consumeReopen("function-plot"), true, "reopening a hidden pane emits one reopen signal");
+  assert.equal(api.consumeReopen("function-plot"), false, "reopen signal is consumed once");
+  location.toString = () => base + "/index.html";
   delete panes["pane-1"];
   api.openPackaged(options);
   assert.equal(calls.length, 2, "a deleted pane is recreated");

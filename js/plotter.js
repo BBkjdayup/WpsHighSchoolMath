@@ -18,6 +18,12 @@
     acos: Math.acos,
     atan: Math.atan,
     sqrt: Math.sqrt,
+    // 优先使用高精度 Math.cbrt，兼容旧内核 ES5 回退
+    cbrt: function (value) {
+      if (!isFinite(value)) { return NaN; }
+      if (typeof Math.cbrt === "function") { return Math.cbrt(value); }
+      return value < 0 ? -Math.pow(-value, 1 / 3) : Math.pow(value, 1 / 3);
+    },
     abs: Math.abs,
     ln: Math.log,
     log: function (value) { return Math.log(value) / Math.LN10; },
@@ -40,6 +46,8 @@
       .replace(/π/g, "pi")
       .replace(/√\s*\(/g, "sqrt(")
       .replace(/√\s*([A-Za-z]+|(?:\d+(?:\.\d*)?|\.\d+))/g, "sqrt($1)")
+      .replace(/∛\s*\(/g, "cbrt(")
+      .replace(/∛\s*([A-Za-z]+|(?:\d+(?:\.\d*)?|\.\d+))/g, "cbrt($1)")
       .replace(/([A-Za-z0-9.)])²/g, "$1^2")
       .replace(/([A-Za-z0-9.)])³/g, "$1^3");
   }
@@ -165,12 +173,29 @@
       return left;
     }
 
+    function isSafeInt(value) {
+      return isFinite(value) && Math.floor(value) === value && Math.abs(value) <= 9007199254740991;
+    }
+
     function parseTerm() {
       var left = parseUnary();
+      var divisionCount = 0;
       while (peek("*") || peek("/")) {
         var operator = tokens[position++].type;
         var right = parseUnary();
-        left = combine(operator, left, right);
+        var next = combine(operator, left, right);
+        // 仅当指数为单个整数字面量分数（如 1/3、-2/3）时记录精确有理数结构
+        if (operator === "/" && divisionCount === 0 &&
+            left.rational && left.rational.q === 1 &&
+            right.rational && right.rational.q === 1 && right.rational.p !== 0) {
+          var num = right.rational.p < 0 ? -left.rational.p : left.rational.p;
+          var den = Math.abs(right.rational.p);
+          if (isSafeInt(num) && isSafeInt(den)) {
+            next.rational = { p: num, q: den };
+          }
+        }
+        divisionCount += 1;
+        left = next;
       }
       return left;
     }
@@ -183,7 +208,11 @@
       if (peek("-")) {
         position += 1;
         var value = parseUnary();
-        return function (x) { return -value(x); };
+        var negated = function (x) { return -value(x); };
+        if (value.rational && isSafeInt(-value.rational.p)) {
+          negated.rational = { p: -value.rational.p, q: value.rational.q };
+        }
+        return negated;
       }
       return parsePower();
     }
@@ -193,11 +222,21 @@
       if (peek("^")) {
         position += 1;
         var exponent = parseUnary();
+        var oddRoot = exponent.rational && exponent.rational.q > 1 && exponent.rational.q % 2 === 1 ?
+          exponent.rational : null;
         return function (x) {
           var value = base(x);
           var power = exponent(x);
           // Math.pow(NaN, 0) otherwise hides an undefined inner expression.
-          return isFinite(value) && isFinite(power) ? finite(Math.pow(value, power)) : NaN;
+          if (!isFinite(value) || !isFinite(power)) { return NaN; }
+          if (oddRoot && oddRoot.q === 3 && Math.abs(oddRoot.p) <= 16) {
+            return finite(Math.pow(FUNCTIONS.cbrt(value), oddRoot.p));
+          }
+          if (value < 0 && oddRoot) {
+            var magnitude = Math.pow(-value, oddRoot.p / oddRoot.q);
+            return finite(oddRoot.p % 2 !== 0 ? -magnitude : magnitude);
+          }
+          return finite(Math.pow(value, power));
         };
       }
       return base;
@@ -206,7 +245,9 @@
     function parsePrimary() {
       if (peek("number")) {
         var number = finite(tokens[position++].value);
-        return function () { return number; };
+        var constant = function () { return number; };
+        if (isSafeInt(number)) { constant.rational = { p: number, q: 1 }; }
+        return constant;
       }
 
       if (peek("identifier")) {
@@ -454,9 +495,19 @@
     if (analysis.tangent) {
       var tangent = analysis.tangent;
       var edges = [];
+      var xTol = (limits.xMax - limits.xMin) * 1e-12;
+      var yTol = (limits.yMax - limits.yMin) * 1e-12;
       function edge(x, y) {
-        if (isFinite(x) && isFinite(y) && x >= limits.xMin && x <= limits.xMax && y >= limits.yMin && y <= limits.yMax) {
-          if (!edges.some(function (point) { return point.x === x && point.y === y; })) { edges.push({ x: x, y: y }); }
+        if (isFinite(x) && isFinite(y) &&
+            x >= limits.xMin - xTol && x <= limits.xMax + xTol &&
+            y >= limits.yMin - yTol && y <= limits.yMax + yTol) {
+          var clampedX = Math.max(limits.xMin, Math.min(limits.xMax, x));
+          var clampedY = Math.max(limits.yMin, Math.min(limits.yMax, y));
+          if (!edges.some(function (point) {
+            return Math.abs(px(point.x) - px(clampedX)) < 1e-4 && Math.abs(py(point.y) - py(clampedY)) < 1e-4;
+          })) {
+            edges.push({ x: clampedX, y: clampedY });
+          }
         }
       }
       edge(limits.xMin, tangent.y + tangent.slope * (limits.xMin - tangent.x));
@@ -466,8 +517,18 @@
         edge(tangent.x + (limits.yMax - tangent.y) / tangent.slope, limits.yMax);
       }
       if (edges.length >= 2) {
-        body.push('<line data-tangent="true" x1="' + px(edges[0].x) + '" y1="' + py(edges[0].y) +
-          '" x2="' + px(edges[1].x) + '" y2="' + py(edges[1].y) + '" stroke="#111111" stroke-width="1.8" stroke-dasharray="10 4 2 4"/>');
+        var bestPair = [edges[0], edges[1]];
+        var bestDist = -1;
+        for (var e1 = 0; e1 < edges.length; e1 += 1) {
+          for (var e2 = e1 + 1; e2 < edges.length; e2 += 1) {
+            var dx = px(edges[e2].x) - px(edges[e1].x);
+            var dy = py(edges[e2].y) - py(edges[e1].y);
+            var dist = dx * dx + dy * dy;
+            if (dist > bestDist) { bestDist = dist; bestPair = [edges[e1], edges[e2]]; }
+          }
+        }
+        body.push('<line data-tangent="true" x1="' + px(bestPair[0].x) + '" y1="' + py(bestPair[0].y) +
+          '" x2="' + px(bestPair[1].x) + '" y2="' + py(bestPair[1].y) + '" stroke="#111111" stroke-width="1.8" stroke-dasharray="10 4 2 4"/>');
       }
     }
     guides.forEach(function (guide, index) {

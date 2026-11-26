@@ -34,6 +34,10 @@ try {
         -not (Test-Path -LiteralPath $registered.ShortcutPath)) {
         throw "Uninstaller registration did not install all persistent components."
     }
+    $shortcutContent = [IO.File]::ReadAllText($registered.ShortcutPath)
+    if (-not $shortcutContent.Contains((Join-Path $uninstallRoot "uninstall.ps1"))) {
+        throw "Start-menu shortcut did not target the requested UninstallRoot."
+    }
     $entry = Get-ItemProperty -LiteralPath $registryPath
     if ($entry.PSObject.Properties["Contact"] -or $entry.DisplayName -ne "WPS 高中数学工具插件" -or
         $entry.UninstallString -notlike "*uninstall.ps1*" -or

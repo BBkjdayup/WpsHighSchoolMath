@@ -18,13 +18,44 @@ function near(actual, expected, tolerance = 1e-6) {
 let result = roots("x^2", "1");
 for (const [expression, min, max, expected] of [
   ["1/(1/x)", -2, 2, []], ["1/(1/x)", -1, 2, []], ["x^2", -1, 2, [0]], ["x^2+1e-20", -1, 2, []],
-  ["sqrt(x)", -5, 5, [0]], ["sqrt(x-0.3)", -1, 2, [0.3]], ["sqrt(1-x^2)", -2, 2, [-1, 1]]
+  ["sqrt(x)", -5, 5, [0]], ["sqrt(x-0.3)", -1, 2, [0.3]], ["sqrt(1-x^2)", -2, 2, [-1, 1]],
+  ["sqrt(3*x-0.9)", -2, 2, [0.3]], ["sqrt(7*x-2)", -1, 2, [2 / 7]],
+  ["sqrt(x^2-2)", -3, 3, [-Math.SQRT2, Math.SQRT2]],
+  ["x^(1/7)", -5, 5, [0]], ["x^(1/9)", -5, 5, [0]], ["sqrt(sqrt(sqrt(x)))", -5, 5, [0]],
+  ["sqrt(x-0.3)+1e-12", -2, 2, []], ["sqrt(3*x-0.9)+1e-7", -2, 2, []],
+  ["(x-0.3)^2/(x-0.3)", -2, 2, []], ["exp(1/x)", -2, 2, []], ["sign(x)+0.001*x", -2, 2, []]
 ]) {
   const chart = plotter.generateConfigSvg({ expressions: [expression], bounds: { ...bounds, xMin: min, xMax: max },
     analysis: { intersection: { first: 0, second: "axis" } } });
   assert.equal(chart.analysis.points.length, expected.length, expression);
   assert.equal((chart.svg.match(/data-analysis-point="intersection"/g) || []).length, expected.length);
   expected.forEach((x, i) => near(chart.analysis.points[i].x, x));
+}
+{
+  const endpointCross1 = roots("sqrt(x-0.3)+0.9", "3*x", -2, 2);
+  assert.equal(endpointCross1.points.length, 2);
+  near(endpointCross1.points[0].x, 0.3);
+  near(endpointCross1.points[1].x, 0.3 + 1 / 9);
+  const endpointCross2 = roots("sqrt(3*x-0.9)+0.9", "3*x", -2, 2);
+  assert.equal(endpointCross2.points.length, 2);
+  near(endpointCross2.points[0].x, 0.3);
+  near(endpointCross2.points[1].x, 0.3 + 1 / 3);
+  const narrowZero = roots("x - 10000000.00000005", "0", 10000000, 10000000.0000001);
+  assert.equal(narrowZero.points.length, 1);
+  near(narrowZero.points[0].x, 10000000.00000005, 4e-9);
+  assert.equal(roots("sign(x - 10000000.00000005)", "0", 10000000, 10000000.0000001).points.length, 0);
+  assert.equal(plotter.evaluateExpression("cbrt(x)", -8), -2);
+  assert.equal(plotter.evaluateExpression("∛x", -27), -3);
+  assert.equal(plotter.evaluateExpression("∛(x+1)", -9), -2);
+  assert.equal(plotter.evaluateExpression("x^(1/3)", -8), -2);
+  assert.equal(plotter.evaluateExpression("x^(2/3)", -8), 4);
+  assert.equal(plotter.evaluateExpression("x^(2/3)", 8), 4);
+  assert.equal(plotter.evaluateExpression("x^(-1/3)", -8), -0.5);
+  near(plotter.evaluateExpression("x^(3/5)", -32), -8, 1e-12);
+  assert(Number.isNaN(plotter.evaluateExpression("x^(-1/3)", 0)));
+  assert(Number.isNaN(plotter.evaluateExpression("x^(2/6)", -8)));
+  assert(Number.isNaN(plotter.evaluateExpression("sqrt(x)^(0/3)", -1)));
+  near(analysisApi.tangentAt(curve("cbrt(x)"), -8).slope, 1 / 12, 1e-5);
 }
 for (const [expression, x] of [["sqrt(x)^0", -1], ["1/(1/x)", 0], ["exp(ln(x))", 0], ["atan(1/x)", 0]]) {
   assert(Number.isNaN(plotter.evaluateExpression(expression, x)), expression);

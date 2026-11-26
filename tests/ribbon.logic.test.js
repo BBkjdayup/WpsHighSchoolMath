@@ -290,6 +290,22 @@ function createContext(hasDocument = true, options = {}) {
   assert.equal(selection.Font.EmphasisMark, 1);
   assert.equal(selection.Font.Hidden, 1);
   assert(calls.some((call) => call[0] === "ConvertToText" && call[1] === 1));
+
+  // wdUndefined (9999999) in mixed multi-paragraph selections must fall back safely
+  selection.ParagraphFormat.LineSpacing = 9999999;
+  assert.equal(context.OnAction({ Id: "line_spacing_more" }), true);
+  assert.equal(selection.ParagraphFormat.LineSpacing, 13);
+  selection.ParagraphFormat.LineSpacing = 1584;
+  assert.equal(context.OnAction({ Id: "line_spacing_more" }), true);
+  assert.equal(selection.ParagraphFormat.LineSpacing, 1584);
+}
+
+{
+  const { context, selection, calls } = createContext();
+  Object.defineProperty(selection, "ParagraphFormat", { get() { throw new Error("unsupported selection"); } });
+  assert.equal(context.OnAction({ Id: "align_center" }), false);
+  assert.equal(context.OnAction({ Id: "line_spacing_more" }), false);
+  assert(calls.filter((call) => call[0] === "alert").length === 2);
 }
 
 {

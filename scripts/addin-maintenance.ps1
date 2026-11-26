@@ -12,6 +12,28 @@ function Test-HsmVersionFolder {
     return $Folder -match ('^' + [regex]::Escape($PluginName) + '_[0-9]+(?:\.[0-9]+){1,3}(?:-[A-Za-z0-9.-]+)?$')
 }
 
+function Limit-HsmBackupFiles {
+    <#
+    .SYNOPSIS
+    限制插件生成的配置备份数量：始终保留最早一份（首次安装前的原始配置）与最近 $KeepRecent 份。
+    .DESCRIPTION
+    Copy-Item 会保留源文件的 LastWriteTime，因此按备份文件的 CreationTime 判断先后。
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$Directory,
+        [Parameter(Mandatory = $true)][string]$Filter,
+        [int]$KeepRecent = 3
+    )
+
+    if (-not [IO.Directory]::Exists($Directory)) { return }
+    $files = @(Get-ChildItem -LiteralPath $Directory -Filter $Filter -File -ErrorAction SilentlyContinue |
+        Sort-Object CreationTimeUtc, Name)
+    if ($files.Count -le $KeepRecent + 1) { return }
+    foreach ($file in $files[1..($files.Count - $KeepRecent - 1)]) {
+        Remove-Item -LiteralPath $file.FullName -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Get-HsmOwnedPluginDirectories {
     param([string]$Root, [string[]]$PluginNames, [string]$PublishPath)
 

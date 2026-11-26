@@ -1,6 +1,6 @@
 # WPS 高中数学工具项目约定
 
-维护前阅读[开发、安装与发行说明](docs/DEVELOPMENT.md)和[0.9.1 修复验收](specs/free-edition-0.9.0/verification-0.9.1.md)。免费产品覆盖 WPS 文字与演示。
+维护前阅读[开发、安装与发行说明](docs/DEVELOPMENT.md)和[0.9.2 验证记录](specs/free-edition-0.9.0/verification-0.9.2.md)。免费产品覆盖 WPS 文字与演示。
 
 - 两个宿主通过各自 `index.html` 同步加载 `main.js`。保留原生快捷绘图回退，插件只打开本地打包的函数页。
 - 配置、绘图、数值分析和收藏共用 `js/` 里的模块。保留 V1–V4 图像元数据及 V1/V2 收藏备份的读写兼容性。数值结果标为近似。

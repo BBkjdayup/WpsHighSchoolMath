@@ -253,10 +253,16 @@
     var expectedToken = getItem(storage, tokenKey);
     var pending = previous && !previous.failureReported && !previous.readyReported &&
       previous.token === expectedToken;
-    if (savedPane && expectedToken && (pending || getItem(storage, readyKey) === expectedToken) &&
-        showPane(savedPane, options.width)) {
-      if (!pending && typeof options.onReady === "function") { options.onReady(); }
-      return true;
+    if (savedPane && expectedToken && (pending || getItem(storage, readyKey) === expectedToken)) {
+      var wasHidden = false;
+      try { wasHidden = !savedPane.Visible; } catch (_) {}
+      if (showPane(savedPane, options.width)) {
+        if (wasHidden && !pending) {
+          setItem(storage, storageKey(stateKey, "reopen"), String(new Date().getTime()));
+        }
+        if (!pending && typeof options.onReady === "function") { options.onReady(); }
+        return true;
+      }
     }
     if (previous) { hidePane(previous.pane); }
     if (savedPane) { hidePane(savedPane); }
@@ -387,9 +393,30 @@
     return setItem(storage, storageKey(stateKey, "ready"), token);
   }
 
+  function consumeReopen(expectedName) {
+    var values = queryValues();
+    var name = String(values.hsmPane || expectedName || "");
+    var host = values.hsmHost === "presentation" ? "presentation" :
+      (values.hsmHost === "writer" ? "writer" : "");
+    var page = Object.prototype.hasOwnProperty.call(PAGE_MAP, name) && PAGE_MAP[name];
+    if (!page || !host || (expectedName && name !== expectedName)) {
+      return false;
+    }
+    var app = null;
+    try { app = root.Application || root.wps || null; } catch (_) { app = null; }
+    var storage = getStorage(app);
+    var reopenKey = storageKey(host + ":" + name, "reopen");
+    if (!getItem(storage, reopenKey)) {
+      return false;
+    }
+    setItem(storage, reopenKey, "");
+    return true;
+  }
+
   return {
     openPackaged: openPackaged,
     signalReady: signalReady,
+    consumeReopen: consumeReopen,
     getVersion: version,
     _private: {
       appendQuery: appendQuery,

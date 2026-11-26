@@ -130,6 +130,26 @@ try {
         throw "An idempotent authorization cache update created another backup."
     }
 
+    # Backup rotation keeps the earliest original plus the three newest copies by creation time.
+    $rotationRoot = Join-Path $testRoot "rotation"
+    New-Item -ItemType Directory -Path $rotationRoot -Force | Out-Null
+    $base = [datetime]"2026-01-01T00:00:00"
+    for ($index = 0; $index -lt 6; $index++) {
+        $path = Join-Path $rotationRoot ("oem.ini.math-plugin-backup-" + [Guid]::NewGuid().ToString("N") + "-$index")
+        [IO.File]::WriteAllText($path, "backup $index")
+        $item = Get-Item -LiteralPath $path
+        $item.CreationTime = $base.AddDays($index)
+        # Copy-Item preserves the source write time, so it must not drive the rotation order.
+        $item.LastWriteTime = $base.AddDays(10 - $index)
+    }
+    Limit-HsmBackupFiles -Directory $rotationRoot -Filter "oem.ini.math-plugin-backup-*"
+    $kept = @(Get-ChildItem -LiteralPath $rotationRoot -File | ForEach-Object { [int]($_.Name.Split("-")[-1]) } | Sort-Object)
+    if (($kept -join ",") -ne "0,3,4,5") {
+        throw "Backup rotation must keep the original and the newest three copies; kept: $($kept -join ',')"
+    }
+    Limit-HsmBackupFiles -Directory $rotationRoot -Filter "oem.ini.math-plugin-backup-*"
+    if (@(Get-ChildItem -LiteralPath $rotationRoot -File).Count -ne 4) { throw "Backup rotation is not idempotent." }
+
     Write-Output "offline installer authorization-cache tests passed"
 } finally {
     if (Test-Path -LiteralPath $testRoot) {

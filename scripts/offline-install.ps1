@@ -470,6 +470,8 @@ function Invoke-HsmInstallTransaction {
     try {
         if ([IO.File]::Exists($trustBackup)) {
             Copy-Item -LiteralPath $trustBackup -Destination "$AuthorizationPath.math-plugin-backup-$([Guid]::NewGuid().ToString('N'))"
+            Limit-HsmBackupFiles -Directory (Split-Path -Parent $AuthorizationPath) `
+                -Filter ([IO.Path]::GetFileName($AuthorizationPath) + ".math-plugin-backup-*")
         }
         Complete-HsmTransaction (Get-Item -LiteralPath $transactionRoot) $JsAddonsPath $StaleNames $RegisterUninstaller
     } catch { Write-Warning "Installation verified. Pending cleanup at $transactionRoot. $_" }
@@ -505,6 +507,8 @@ Invoke-HsmMaintenance {
         try {
             $oemBackupPath = "$oemPath.math-plugin-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
             Copy-Item -LiteralPath $oemPath -Destination $oemBackupPath -Force
+            Limit-HsmBackupFiles -Directory (Split-Path -Parent $oemPath) `
+                -Filter ([IO.Path]::GetFileName($oemPath) + ".math-plugin-backup-*")
             $oemContent = Get-Content -LiteralPath $oemPath -Raw
             $oemContent = Set-IniValue -Content $oemContent -Section "Support" -Key "JsApiPlugin" -Value "true"
             $oemContent = Set-IniValue -Content $oemContent -Section "Support" -Key "JsApiShowWebDebugger" -Value "false"

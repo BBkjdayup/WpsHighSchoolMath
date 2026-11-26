@@ -876,8 +876,8 @@
   global.GetProbeFileStatus = function () { return fileStatus(); };
   global.GetCompatStatusLabel = function () { return "\u72B6\u6001\uFF1A\u517C\u5BB9\u8BCA\u65AD\u6A21\u5F0F\uFF0C\u4E0D\u53C2\u4E0E\u65B9\u6848\u7532\u786C\u95E8\u7981"; };
   global.GetCompatMachineCodeLabel = function () { return "\u673A\u5668\u7801\uFF1A\u9694\u79BB\u63A2\u9488\u4E0D\u8BFB\u6B63\u5F0F\u6388\u6743\u6570\u636E"; };
-  global.GetCompatQqLabel = function () { return "QQ\uFF1A*********"; };
-  global.GetCompatWechatLabel = function () { return "\u5FAE\u4FE1\u53F7\uFF1A********"; };
+  global.GetCompatQqLabel = function () { return "\u53CD\u9988\u6E20\u9053\uFF1A\u89C1\u9879\u76EE\u4ED3\u5E93 Issue"; };
+  global.GetCompatWechatLabel = function () { return "\u8BCA\u65AD\u8BF4\u660E\uFF1A\u514D\u8D39\u7248\u65E0\u9700\u6FC0\u6D3B"; };
   global.OnProbeAction = function (control) {
     var id = control && (control.Id || control.id) ? String(control.Id || control.id) : "";
     if (id === "probe_mark_visible") { currentSession().visibleConfirmed = true; persist(true); refresh(); notify("Ribbon Tab \u5DF2\u8BB0\u5F55\u4E3A\u53EF\u89C1\u3002"); return true; }

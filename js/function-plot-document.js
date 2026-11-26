@@ -235,7 +235,22 @@
         } catch (_) {}
       }
     });
-    try { selection.SetRange(shape.Range.End, shape.Range.End); } catch (_) {}
+    if (update) {
+      // 更新图像后保持选中新图，便于连续微调参数与范围
+      var selectedNew = false;
+      try {
+        if (shape.Range && isFinite(shape.Range.Start) && isFinite(shape.Range.End) &&
+            Number(shape.Range.End) > Number(shape.Range.Start)) {
+          selection.SetRange(Number(shape.Range.Start), Number(shape.Range.End));
+          selectedNew = true;
+        }
+      } catch (_) {}
+      if (!selectedNew) {
+        try { if (typeof shape.Select === "function") { shape.Select(); } } catch (_) {}
+      }
+    } else {
+      try { selection.SetRange(shape.Range.End, shape.Range.End); } catch (_) {}
+    }
     return {
       host: "writer",
       updated: update,

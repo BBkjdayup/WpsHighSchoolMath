@@ -261,8 +261,13 @@ function setParagraphAlignment(alignment) {
   if (!selection) {
     return false;
   }
-  selection.ParagraphFormat.Alignment = alignment;
-  return true;
+  try {
+    selection.ParagraphFormat.Alignment = alignment;
+    return true;
+  } catch (error) {
+    alert("当前选区无法设置段落对齐。\n" + error.message);
+    return false;
+  }
 }
 
 function removeSpaces() {
@@ -320,11 +325,18 @@ function adjustLineSpacing(delta) {
     return false;
   }
 
-  var format = selection.ParagraphFormat;
-  var current = Number(format.LineSpacing) || 12;
-  format.LineSpacingRule = 4;
-  format.LineSpacing = Math.max(6, current + delta);
-  return true;
+  try {
+    var format = selection.ParagraphFormat;
+    var rawSpacing = Number(format.LineSpacing);
+    // 过滤跨段混合行距哨兵值 wdUndefined (9999999) 及越界值，Word/WPS 行距上限为 1584 磅
+    var current = (isFinite(rawSpacing) && rawSpacing > 0 && rawSpacing <= 1584) ? rawSpacing : 12;
+    format.LineSpacingRule = 4;
+    format.LineSpacing = Math.min(1584, Math.max(6, current + delta));
+    return true;
+  } catch (error) {
+    alert("当前选区无法调整行距。\n" + error.message);
+    return false;
+  }
 }
 
 function setUnderline(enabled) {
@@ -332,8 +344,13 @@ function setUnderline(enabled) {
   if (!selection) {
     return false;
   }
-  selection.Font.Underline = enabled ? 1 : 0;
-  return true;
+  try {
+    selection.Font.Underline = enabled ? 1 : 0;
+    return true;
+  } catch (error) {
+    alert("当前选区无法设置下划线。\n" + error.message);
+    return false;
+  }
 }
 
 function setEmphasis(enabled) {
@@ -341,8 +358,13 @@ function setEmphasis(enabled) {
   if (!selection) {
     return false;
   }
-  selection.Font.EmphasisMark = enabled ? 1 : 0;
-  return true;
+  try {
+    selection.Font.EmphasisMark = enabled ? 1 : 0;
+    return true;
+  } catch (error) {
+    alert("当前选区无法设置着重号。\n" + error.message);
+    return false;
+  }
 }
 
 function toggleHidden() {
@@ -350,8 +372,13 @@ function toggleHidden() {
   if (!selection) {
     return false;
   }
-  selection.Font.Hidden = selection.Font.Hidden ? 0 : 1;
-  return true;
+  try {
+    selection.Font.Hidden = selection.Font.Hidden ? 0 : 1;
+    return true;
+  } catch (error) {
+    alert("当前选区无法切换隐藏文字。\n" + error.message);
+    return false;
+  }
 }
 
 function setPageLayout(layout) {

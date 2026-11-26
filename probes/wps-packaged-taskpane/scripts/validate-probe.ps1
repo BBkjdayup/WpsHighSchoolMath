@@ -36,7 +36,20 @@ foreach ($path in @(
     & node --check $path
     if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $path" }
 }
-$forbidden = rg -n --encoding utf-8 "localhost|127\.0\.0\.1|::1|ShellExecute|XMLHttpRequest|fetch\(|WebSocket|EventSource|WpsHighSchoolMathEditorHost" (Join-Path $script:ProbeRoot "src") (Join-Path $script:ProbeRoot "probe-manifest.json")
-if ($LASTEXITCODE -eq 0) { throw "Packaged task-pane probe contains forbidden runtime text: $($forbidden -join [Environment]::NewLine)" }
-if ($LASTEXITCODE -gt 1) { throw "rg failed while validating the probe." }
+$forbiddenPattern = "localhost|127\.0\.0\.1|::1|ShellExecute|XMLHttpRequest|fetch\(|WebSocket|EventSource|WpsHighSchoolMathEditorHost"
+$scanFiles = @(Get-ChildItem -LiteralPath (Join-Path $script:ProbeRoot "src") -Recurse -File) +
+    @(Get-Item -LiteralPath (Join-Path $script:ProbeRoot "probe-manifest.json"))
+$forbiddenHits = @()
+foreach ($scanFile in $scanFiles) {
+    $lineNumber = 0
+    foreach ($line in [IO.File]::ReadAllLines($scanFile.FullName, [Text.Encoding]::UTF8)) {
+        $lineNumber += 1
+        if ($line -match $forbiddenPattern) {
+            $forbiddenHits += "$($scanFile.FullName):${lineNumber}:$line"
+        }
+    }
+}
+if ($forbiddenHits.Count -gt 0) {
+    throw "Packaged task-pane probe contains forbidden runtime text: $($forbiddenHits -join [Environment]::NewLine)"
+}
 Write-Host "Packaged task-pane probe validation passed ($Mode)."

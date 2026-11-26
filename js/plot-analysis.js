@@ -79,12 +79,17 @@
       return { x: x, a: a, b: b, d: a - b };
     }
     function continuous(point) {
-      var h = Math.max(spacing * 0.01, 64 * EPS * Math.max(1, Math.abs(point.x)));
+      var minStep = 4 * EPS * Math.max(1, Math.abs(point.x));
+      var baseH = Math.max(spacing * 0.01, 64 * EPS * Math.max(1, Math.abs(point.x)));
       var sides = 0;
+      var availableSides = 0;
       for (var sign = -1; sign <= 1; sign += 2) {
-        var farX = point.x + sign * h;
-        if (farX < lo || farX > hi) { continue; }
-        var far = at(farX);
+        // 大坐标窄搜索区间下按单侧可用余量裁剪探针步长，避免两侧同时越出 [lo, hi]
+        var room = sign < 0 ? point.x - lo : hi - point.x;
+        var h = Math.min(baseH, room);
+        if (h < minStep || point.x + sign * h / 2 === point.x) { continue; }
+        availableSides += 1;
+        var far = at(point.x + sign * h);
         var near = at(point.x + sign * h / 2);
         if (!isFinite(far.d) && !isFinite(near.d)) { continue; }
         if (!isFinite(far.d) || !isFinite(near.d)) { return false; }
@@ -93,11 +98,19 @@
           var coarse = Math.abs(far[key] - point[key]);
           var fine = Math.abs(near[key] - point[key]);
           var noise = 32 * EPS * Math.max(1e-300, Math.abs(point[key]), Math.abs(far[key]), Math.abs(near[key]));
-          if (fine > 0.9 * coarse + noise) { return false; }
+          if (fine > 0.9 * coarse + noise) {
+            // 高次奇根或嵌套根式在竖直切线零点处半步衰减较缓，追加细步长复核区分连续根与跳跃间断点
+            var tinyX = point.x + sign * h / 16;
+            if (!(fine < coarse && tinyX !== point.x)) { return false; }
+            var tinySample = at(tinyX);
+            if (!isFinite(tinySample.d)) { return false; }
+            var tiny = Math.abs(tinySample[key] - point[key]);
+            if (tiny > 0.88 * coarse + noise || tiny >= fine) { return false; }
+          }
         }
         sides += 1;
       }
-      return sides > 0 || lo === hi;
+      return sides > 0 || availableSides === 0;
     }
     function add(point, bracketed, localError) {
       if (!isFinite(point.d)) { return; }
@@ -145,17 +158,48 @@
       var variation = Math.max(Math.abs(at(a).d - best.d), Math.abs(at(b).d - best.d));
       add(best, false, variation);
     }
+    function openEndpoint(curve, x) {
+      var domain = curve.curve.domain;
+      return (domain.min !== null && !domain.minClosed && x <= domain.min) ||
+        (domain.max !== null && !domain.maxClosed && x >= domain.max);
+    }
     function domainBoundary(valid, invalid) {
-      // Refine from inside the common domain. Only an actual finite zero at
-      // the boundary qualifies, never a limit approached across an open end.
+      // 从共同定义域内侧逼近边界，区分显式开端点、孤立奇点与含 1 ULP 浮点舍入的自然边界交点
       if (valid.d === 0) { return; } // The sampled zero/overlap is handled in the main scan.
       for (var step = 0; step < 64; step += 1) {
-        var x = valid.x + (invalid.x - valid.x) / 2;
+        var x = (valid.x < 0 && invalid.x > 0) || (valid.x > 0 && invalid.x < 0) ?
+          0 : valid.x + (invalid.x - valid.x) / 2;
         if (x === valid.x || x === invalid.x) { break; }
         var middle = at(x);
         if (isFinite(middle.d)) { valid = middle; } else { invalid = middle; }
       }
-      if (valid.d === 0) { add(valid, false); }
+      if (openEndpoint(first, invalid.x) || openEndpoint(second, invalid.x)) { return; }
+      var ulp = valid.x - invalid.x;
+      var oppositeX = invalid.x - ulp;
+      if (oppositeX !== invalid.x && oppositeX >= lo && oppositeX <= hi && isFinite(at(oppositeX).d)) { return; }
+      var scale = Math.max(Math.abs(valid.a), Math.abs(valid.b));
+      var n1 = at(valid.x + ulp);
+      if (!isFinite(n1.d)) { return; }
+      if (Math.abs(valid.d) <= 8 * EPS * scale) {
+        var flatScale = Math.max(scale, Math.abs(n1.a), Math.abs(n1.b));
+        if (Math.abs(n1.d - valid.d) <= 8 * EPS * flatScale) {
+          overlap = true;
+          return;
+        }
+        add(valid, false, 8 * EPS * scale);
+        return;
+      }
+      var n4 = at(valid.x + 4 * ulp);
+      if (!isFinite(n4.d)) { return; }
+      var abs0 = Math.abs(valid.d);
+      var abs1 = Math.abs(n1.d);
+      var abs4 = Math.abs(n4.d);
+      if ((valid.d > 0) !== (n1.d > 0) || (n1.d > 0) !== (n4.d > 0) || !(abs0 < abs1 && abs1 < abs4)) { return; }
+      var ratio = (abs0 * abs0) / (abs1 * abs1 - abs0 * abs0);
+      var maxRootResidual = 256 * Math.sqrt(EPS) * Math.max(1, scale, Math.abs(valid.x));
+      if (abs0 <= maxRootResidual && ratio >= 0.02 && ratio <= 1.05) {
+        add(valid, false, abs0);
+      }
     }
     if (lo === hi) { add(at(lo), false); }
     else {

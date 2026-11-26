@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Destination,
     [switch]$SkipBuild,
     [switch]$SkipTests,
@@ -107,6 +107,7 @@ if (Test-Path -LiteralPath $zipHashPath) { throw "Archive hash already exists: $
 New-Item -ItemType Directory -Path $sourceRoot, $releaseRoot -Force | Out-Null
 
 $rootFiles = @(
+    ".gitattributes",
     ".gitignore",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
@@ -123,7 +124,89 @@ $rootFiles = @(
 )
 $sourceDirectories = @("js", "ppt", "probes", "scripts", "specs", "tests", "ui", "docs")
 foreach ($path in $rootFiles + $sourceDirectories) {
-    Copy-RequiredItem -RelativePath $path
+    $requiredPath = Join-Path $projectRoot $path
+    if (-not (Test-Path -LiteralPath $requiredPath)) {
+        throw "Required handoff source is missing: $path"
+    }
+}
+
+function Get-HsmGitFileList {
+    <#
+    .SYNOPSIS
+    以 UTF-8 读取 git ls-files 的 NUL 分隔输出，关闭 core.quotepath，保证中文文件名原样返回。
+    #>
+    param(
+        [Parameter(Mandatory = $true)][string]$GitPath,
+        [Parameter(Mandatory = $true)][string]$Root,
+        [string[]]$Arguments = @("ls-files")
+    )
+
+    $startInfo = New-Object Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $GitPath
+    $startInfo.Arguments = "-C `"$Root`" -c core.quotepath=off " + ($Arguments -join " ") + " -z"
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.StandardOutputEncoding = New-Object Text.UTF8Encoding($false)
+    $process = [Diagnostics.Process]::Start($startInfo)
+    try {
+        $output = $process.StandardOutput.ReadToEnd()
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0) { return @() }
+    } finally {
+        $process.Dispose()
+    }
+    # PowerShell 5.1 会把 Split 的枚举参数误当作分隔符，改用 -split 并过滤空项
+    return @($output -split "`0" | Where-Object { $_ })
+}
+
+$gitSourceCmd = Get-Command git -ErrorAction SilentlyContinue
+$trackedEntries = @()
+if ($gitSourceCmd -and (Test-Path -LiteralPath (Join-Path $projectRoot ".git"))) {
+    $trackedEntries = @(Get-HsmGitFileList -GitPath $gitSourceCmd.Source -Root $projectRoot)
+}
+
+if ($trackedEntries.Count -gt 0) {
+    # 优先按 Git 受控清单导出源码树，防止本地未跟踪目录或编译中间产物混入交接包
+    $rootSet = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($item in $rootFiles) { [void]$rootSet.Add($item) }
+    $dirPrefixes = @($sourceDirectories | ForEach-Object { $_ + "/" })
+    foreach ($entry in $trackedEntries) {
+        $normalized = ([string]$entry).Replace("\", "/")
+        $include = $rootSet.Contains($normalized)
+        if (-not $include) {
+            foreach ($prefix in $dirPrefixes) {
+                if ($normalized.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+                    $include = $true
+                    break
+                }
+            }
+        }
+        if ($include) {
+            $relativePath = $normalized.Replace("/", "\")
+            if (-not (Test-Path -LiteralPath (Join-Path $projectRoot $relativePath))) {
+                Write-Warning "跳过已在工作区删除、但仍在 Git 受控清单中的文件：$normalized"
+                continue
+            }
+            Copy-RequiredItem -RelativePath $relativePath
+        }
+    }
+    # 未加入 Git 的新文件不会进入交接包，提示维护者确认
+    $untrackedEntries = @(Get-HsmGitFileList -GitPath $gitSourceCmd.Source -Root $projectRoot `
+        -Arguments @("ls-files", "--others", "--exclude-standard"))
+    foreach ($entry in $untrackedEntries) {
+        $normalized = ([string]$entry).Replace("\", "/")
+        if ($rootSet.Contains($normalized) -or @($dirPrefixes | Where-Object { $normalized.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) }).Count) {
+            Write-Warning "未加入 Git 的文件不会进入交接包：$normalized"
+        }
+    }
+} else {
+    foreach ($path in $rootFiles + $sourceDirectories) {
+        Copy-RequiredItem -RelativePath $path
+    }
+    Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -Force |
+        Where-Object { $_.Extension -in @(".obj", ".lib", ".exp", ".pdb", ".log", ".tmp", ".bak") } |
+        Remove-Item -Force
 }
 
 if (-not $SkipBuild) {

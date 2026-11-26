@@ -39,6 +39,7 @@ New-Item -ItemType Directory -Path $jsAddonsPath, $licenseStatePath -Force | Out
 
 try {
     Write-TestFile (Join-Path $jsAddonsPath "WpsHighSchoolMath_0.5.1\main.js") "writer"
+    Write-TestFile (Join-Path $jsAddonsPath "WpsHighSchoolMathE2E3_0.3.3\main.js") "legacy-e2e3"
     Write-TestFile (Join-Path $jsAddonsPath "WpsHighSchoolMathPpt_0.5.1\main.js") "ppt"
     Write-TestFile (Join-Path $jsAddonsPath "OtherPlugin_1.0\main.js") "other"
     Write-TestFile (Join-Path $jsAddonsPath "WpsHighSchoolMath_Notes_1.0.0\manifest.xml") "<JsPlugin><Name>WpsHighSchoolMath_Notes</Name></JsPlugin>"
@@ -50,6 +51,7 @@ try {
   <jsplugin name="WpsHighSchoolMath_Notes" type="wps" url="WpsHighSchoolMath_Notes_1.0.0" version="1.0.0" />
   <jsplugin name="OtherPlugin" type="wps" url="OtherPlugin_1.0" version="1.0" />
   <jsplugin name="WpsHighSchoolMath" type="wps" url="WpsHighSchoolMath_0.5.1" version="0.5.1" />
+  <jsplugin name="WpsHighSchoolMathE2E3" type="wps" url="WpsHighSchoolMathE2E3_0.3.3" version="0.3.3" />
   <jsplugin name="WpsHighSchoolMathPpt" type="wpp" url="WpsHighSchoolMathPpt_0.5.1" version="0.5.1" />
 </jsplugins>
 '@
@@ -66,13 +68,13 @@ try {
     }
     Write-TestFile $authorizationPath ($authorization | ConvertTo-Json -Depth 8)
 
-    $pluginNames = @("WpsHighSchoolMath", "WpsHighSchoolMathPpt")
     $staleNames = @("WpsHighSchoolMath", "WpsHighSchoolMathE2E3", "WpsHighSchoolMathPpt")
-    Remove-HsmPluginDirectories -JsAddonsPath $jsAddonsPath -PluginNames $pluginNames
+    Remove-HsmPluginDirectories -JsAddonsPath $jsAddonsPath -PluginNames $staleNames
     Remove-HsmPublishEntries -Path $publishPath -PluginNames $staleNames
     Remove-HsmAuthorizationEntries -Path $authorizationPath -PluginNames $staleNames
 
     if (Test-Path -LiteralPath (Join-Path $jsAddonsPath "WpsHighSchoolMath_0.5.1")) { throw "Writer payload was not removed." }
+    if (Test-Path -LiteralPath (Join-Path $jsAddonsPath "WpsHighSchoolMathE2E3_0.3.3")) { throw "Legacy E2E3 payload was not removed." }
     if (Test-Path -LiteralPath (Join-Path $jsAddonsPath "WpsHighSchoolMathPpt_0.5.1")) { throw "Presentation payload was not removed." }
     if (-not (Test-Path -LiteralPath (Join-Path $jsAddonsPath "OtherPlugin_1.0\main.js"))) { throw "Unrelated payload was removed." }
 

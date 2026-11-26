@@ -180,9 +180,13 @@ function Invoke-HsmUninstall {
     $ownedRoots = @(Get-HsmOwnedPluginDirectories $jsAddonsPath $stalePluginNames $publishPath | ForEach-Object FullName)
     Stop-LocalEditorHosts -AllowedRoots ($ownedRoots + $legacyProductPath)
     Repair-HsmPendingTransactions -Root $jsAddonsPath -PluginNames $stalePluginNames -Removing
-    Remove-HsmPluginDirectories -JsAddonsPath $jsAddonsPath -PluginNames @($pluginName, $pptPluginName)
+    Remove-HsmPluginDirectories -JsAddonsPath $jsAddonsPath -PluginNames $stalePluginNames
     Remove-HsmPublishEntries -Path $publishPath -PluginNames $stalePluginNames
     Remove-HsmAuthorizationEntries -Path $authorizationPath -PluginNames $stalePluginNames
+    if (Test-Path -LiteralPath $jsAddonsPath -PathType Container) {
+        Get-ChildItem -LiteralPath $jsAddonsPath -Filter "authaddin.json.math-plugin-backup-*" -File -ErrorAction SilentlyContinue |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+    }
     $uninstallPaths = Unregister-HsmUninstaller
 
     Start-HsmUninstallSelfCleanup -Paths $uninstallPaths

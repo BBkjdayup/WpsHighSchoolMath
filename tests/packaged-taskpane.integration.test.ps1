@@ -56,4 +56,7 @@ try {
 & node (Join-Path $projectRoot "scripts\zero-loopback-policy.js") --profile source --root $projectRoot
 Assert-TestCondition ($LASTEXITCODE -eq 0) "Source zero-loopback policy failed."
 
+& powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File (Join-Path $projectRoot "probes\wps-packaged-taskpane\scripts\validate-probe.ps1") -Mode Source
+Assert-TestCondition ($LASTEXITCODE -eq 0) "Packaged task-pane probe source validation failed."
+
 Write-Output "Packaged task-pane integration tests passed for version $version."

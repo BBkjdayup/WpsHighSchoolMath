@@ -235,10 +235,17 @@ function Register-HsmUninstaller {
         NoModify = 1
         NoRepair = 1
     }
+    $defaultUninstallRoot = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "Programs\WpsHighSchoolMath-Uninstaller"))
+    $shortcutTargetScript = if ($paths.Root.Equals($defaultUninstallRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        "%LOCALAPPDATA%\Programs\WpsHighSchoolMath-Uninstaller\uninstall.ps1"
+    } else {
+        $paths.ScriptPath
+    }
 $startMenuCommand = @"
 @echo off
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "%LOCALAPPDATA%\Programs\WpsHighSchoolMath-Uninstaller\uninstall.ps1"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "$shortcutTargetScript"
 "@
+    $shortcutEncoding = if ($startMenuCommand -match '[^\u0000-\u007F]') { New-Object Text.UTF8Encoding($false) } else { New-Object Text.ASCIIEncoding }
     try {
         [void](New-Item -ItemType Directory -Path $paths.Root, $paths.StartMenuDirectory -Force)
         foreach ($component in $components) {
@@ -246,7 +253,7 @@ $startMenuCommand = @"
             Copy-Item -LiteralPath $component.SourcePath -Destination $component.Destination -Force
         }
         $changedFiles += $paths.ShortcutPath
-        [IO.File]::WriteAllText($paths.ShortcutPath, $startMenuCommand, (New-Object Text.ASCIIEncoding))
+        [IO.File]::WriteAllText($paths.ShortcutPath, $startMenuCommand, $shortcutEncoding)
         $dwordValues.EstimatedSize = Get-HsmEstimatedSizeKb -JsAddonsPath $JsAddonsPath -UninstallRoot $paths.Root
         $result = Set-HsmUninstallRegistryValues -RegistryPath $paths.RegistryPath -StringValues $registryValues -DwordValues $dwordValues -Verify {
             Test-HsmUninstallerRegistration -Version $Version -UninstallRoot $paths.Root -RegistryPath $paths.RegistryPath -StartMenuDirectory $paths.StartMenuDirectory

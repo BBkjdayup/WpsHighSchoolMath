@@ -50,4 +50,4 @@ Ribbon 门禁不再使用 `editBox`。Writer 与 Presentation 必须在同一 ru
 
 `writeFileString/readFileString` 与 `WriteFile/ReadFile` 只允许在正式二进制接口失败后运送失败诊断记录。只要本轮尝试或使用过旧传输，`legacyDiagnosticAttempted` / `legacyDiagnosticTransport` 就会让整体硬门禁失败；旧接口永远不能贡献任何正式通过项。
 
-兼容 Ribbon 只用于恢复 Tab 可见性和显示联系方式，不参与硬门禁，也不能进入商业载荷。联系方式微信号：`********`。
+兼容 Ribbon 只用于恢复 Tab 可见性和显示诊断状态，不参与硬门禁，也不能进入商业载荷。

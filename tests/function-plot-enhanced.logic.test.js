@@ -93,7 +93,7 @@ function writerFixture(failure) {
   const selection = {
     Range: { Start: 8, End: 9 },
     InlineShapes: { Count: 1, Item() { return previous; } },
-    SetRange() {}
+    SetRange(start, end) { calls.push(["select-range", start, end]); }
   };
   const app = {
     Selection: selection,
@@ -130,6 +130,8 @@ for (const failure of ["insert", "metadata"]) {
   assert(result.updated);
   assert(fixture.calls.indexOf("add") < fixture.calls.indexOf("delete-old"));
   assert.equal(fixture.created.Width, 300);
+  assert.deepStrictEqual(fixture.calls[fixture.calls.length - 1], ["select-range", 8, 9],
+    "updating a Writer plot keeps the new shape selected for continuous editing");
 }
 {
   const fixture = writerFixture("delete");
@@ -143,6 +145,8 @@ for (const failure of ["insert", "metadata"]) {
   assert.equal(result.updated, false, "a text range containing a plot is not a plot selection");
   assert.equal(fixture.app.Selection.Range.Text, "保留正文与原图");
   assert(!fixture.previous.deleted);
+  assert.deepStrictEqual(fixture.calls[fixture.calls.length - 1], ["select-range", 9, 9],
+    "inserting a new Writer plot collapses selection after the picture");
 }
 {
   let removed = false;

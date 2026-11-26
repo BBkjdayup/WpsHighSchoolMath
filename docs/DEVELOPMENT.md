@@ -1,6 +1,6 @@
 # 开发、安装与发行说明
 
-## 0.9.1 免费版
+## 0.9.2 免费版
 
 Windows 桌面版 WPS 文字与演示共用本地绘图页面。文字另有试卷模板和排版工具。全部功能长期免费，直接从功能区「高中数学」打开。
 
@@ -28,11 +28,11 @@ Windows 桌面版 WPS 文字与演示共用本地绘图页面。文字另有试�
 - “坐标点标注”支持每行输入 `名称,横坐标,纵坐标`，例如 `A,0,1`。最多支持 30 个点，范围外的点不显示但保留参数。
 - 表达式错误和无效定义域会标记对应行。最多 12 条曲线；过于密集的函数会提示缩小范围，避免长时间占用 WPS。
 - 未启用分析的参数与辅助线仍使用 V3；本版原生快捷输入回退会保留含新版设置的图像，并提示使用完整编辑器。
-- 更新图像时先创建新图并验证编辑参数，再移除旧图；添加失败不会先删除旧图。新增图像使用折叠插入范围，保留选中文本。若 WPS 无法确认旧图删除结果，则保留新图并提示检查多余图像。
+- 更新图像时先创建新图并验证编辑参数，再移除旧图；添加失败不会先删除旧图。文字与演示在更新成功后均保持选中新图，便于继续微调参数与范围；新增图像使用折叠插入范围，保留选中文本。若 WPS 无法确认旧图删除结果，则保留新图并提示检查多余图像。
 - 离线安装后点击 `函数编辑器`，WPS 会直接打开版本化的本地函数绘图页；插件不启动本地服务、不监听端口、不连接 localhost，也不启动外部页面助手。
 - 编辑器可添加多条函数、按回车新增函数，或重复点击预设追加曲线。
-- 支持 `+ - * / ^`、隐式乘法 `2x`、括号以及 `sin`、`cos`、`tan`、`sqrt`、`abs`、`ln`、`log`、`exp` 等函数。
-- 根号可写 `√x`、`√2`；根号后接函数或复杂表达式请写成 `√(sin(x))`、`√(x+1)`。
+- 支持 `+ - * / ^`、隐式乘法 `2x`、括号、实数奇数分母分数次幂（如 `x^(1/3)`、`x^(2/3)`）以及 `sin`、`cos`、`tan`、`sqrt`、`cbrt`、`abs`、`ln`、`log`、`exp` 等函数。
+- 根号可写 `√x`、`√2`、`∛x`、`∛8`；根号后接函数或复杂表达式请写成 `√(sin(x))`、`√(x+1)`、`∛(x+1)`。
 - 支持 `π`、`x²`、`x³`，并提供二次函数、绝对值、反比例、sin、cos、指数、对数预设。
 - 坐标范围默认保持为横纵坐标 `-10` 到 `10`，点击预设不会修改范围。
 - 完整编辑器可逐项开关刻度数字、网格、边框和函数表达式图例；原生回退流程默认全部显示。
@@ -64,6 +64,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\validate-comme
 - 两个宿主同步加载相应 Ribbon。打包只包含项目自有前端和系统脚本，复用 Windows IExpress、PowerShell 和 SHA-256。发布校验逐页解析本地引用。
 - 文档操作复用 WPS 的 Range 和 Shape 接口。文字在所选正文或页眉的 Range 内设置符号字体，演示更新先恢复旋转和相对层级，再移除旧图。2026-11-24 在 WPS 12.1.0.29690 复核。[Range.Duplicate](https://learn.microsoft.com/en-us/office/vba/api/word.range.duplicate) · [Shape.ZOrder](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.shape.zorder)
 - 安装恢复使用同卷目录移动、原子文件替换和既有维护锁。`scripts/addin-maintenance.ps1` 供两个入口共用。载荷聚合摘要使用序数排序，旧清单按已逐项核验的原顺序读取。[Directory.Move](https://learn.microsoft.com/en-us/dotnet/api/system.io.directory.move)
-- 版本验收和测试环境见[0.9.1 修复记录](../specs/free-edition-0.9.0/verification-0.9.1.md)和[0.9.0 免费版基线](../specs/free-edition-0.9.0/implementation.md)。
+- 版本验收和测试环境见[0.9.2 验证记录](../specs/free-edition-0.9.0/verification-0.9.2.md)、[0.9.1 修复记录](../specs/free-edition-0.9.0/verification-0.9.1.md)和[0.9.0 免费版基线](../specs/free-edition-0.9.0/implementation.md)。
 
 实机能力探针复用 Windows 进程快照读取父子关系和程序名，并以有限查询权限读取候选程序路径。采样间隔上限为 100 毫秒，超限会记录间隔和丢样数。此探针仅用于开发验收。[Microsoft QueryFullProcessImageNameW 文档](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamew)

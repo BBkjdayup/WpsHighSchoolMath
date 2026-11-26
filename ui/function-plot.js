@@ -7,6 +7,7 @@ var selectionMonitorId = null;
 var previewTimer = null;
 var plotLibrary = null;
 var nextCurveId = 0;
+var formModifiedByUser = false;
 
 var PRESETS = {
   quadratic: { expression: "x^2" },
@@ -112,6 +113,7 @@ function addExpressionRow(value, focusInput, curveConfig) {
   remove.title = "删除这一行";
   remove.textContent = "×";
   remove.addEventListener("click", function () {
+    formModifiedByUser = true;
     if (row.parentNode) {
       row.parentNode.removeChild(row);
     }
@@ -183,12 +185,21 @@ function readDomainValue(row, selector) {
   return control.value;
 }
 
+function readNumberControl(id, label) {
+  var control = node(id);
+  if (control && control.validity && control.validity.badInput) {
+    throw new Error(label + "请输入完整数值。");
+  }
+  return control ? control.value : "";
+}
+
 function readParameters() {
   var result = {};
+  var fieldLabels = { value: "当前值", min: "最小值", max: "最大值", step: "步长" };
   ["a", "b", "c"].forEach(function (name) {
     var parameter = {};
     ["value", "min", "max", "step"].forEach(function (key) {
-      parameter[key] = node("parameter-" + name + "-" + key).value;
+      parameter[key] = readNumberControl("parameter-" + name + "-" + key, "参数 " + name + " " + fieldLabels[key]);
     });
     result[name] = parameter;
   });
@@ -316,9 +327,11 @@ function initializeLibrary() {
     var id = node("favoriteList").value;
     var item = plotLibrary.list().filter(function (entry) { return entry.id === id; })[0];
     if (!item) { throw new Error("请先选择一个收藏方案，或刷新列表。"); }
-    if (!applyConfig(item.config, synchronizeSelectionMode())) { throw new Error("方案已载入，请检查绘图输入错误提示。"); }
+    var favoriteApplied = applyConfig(item.config, synchronizeSelectionMode());
+    // 载入收藏会替换表单内容，且尚未写入文档，按草稿修改处理
+    formModifiedByUser = true;
+    if (!favoriteApplied) { throw new Error("方案已载入，请检查绘图输入错误提示。"); }
     node("favoriteName").value = item.name;
-    node("parameterSettings").open = true;
     setLibraryStatus("已载入“" + item.name + "”；文档中的图像需点击插入或更新后才会改变。", false);
   });
   action("deleteFavoriteButton", function () {
@@ -384,10 +397,10 @@ function readPlotInput() {
     guides: readGuides(),
     analysis: window.MathPlotAnalysisPanel ? window.MathPlotAnalysisPanel.read(rows) : undefined,
     bounds: {
-      xMin: node("xMin").value,
-      xMax: node("xMax").value,
-      yMin: node("yMin").value,
-      yMax: node("yMax").value
+      xMin: readNumberControl("xMin", "横坐标最小值"),
+      xMax: readNumberControl("xMax", "横坐标最大值"),
+      yMin: readNumberControl("yMin", "纵坐标最小值"),
+      yMax: readNumberControl("yMax", "纵坐标最大值")
     },
     options: {
       showTickLabels: node("showTickLabels").checked,
@@ -401,6 +414,28 @@ function readPlotInput() {
     return window.MathFunctionDocument.normalizeConfig(input);
   }
   return input;
+}
+
+function usesParameterControls(normalized) {
+  var params = normalized.parameters;
+  var nonDefault = Boolean(params && ["a", "b", "c"].some(function (name) {
+    var expected = name === "a" ? 1 : 0;
+    return params[name] && (params[name].value !== expected || params[name].min !== -5 ||
+      params[name].max !== 5 || params[name].step !== 0.1);
+  }));
+  if (nonDefault) { return true; }
+  if (!window.FunctionPlotter || !window.FunctionPlotter.compileExpression) { return false; }
+  var values = { a: 1, b: 0, c: 0 };
+  if (params) {
+    ["a", "b", "c"].forEach(function (name) { if (params[name]) { values[name] = params[name].value; } });
+  }
+  var expressions = (normalized.expressions || []).slice();
+  (normalized.guides || []).forEach(function (guide) { expressions.push(guide.expression); });
+  if (normalized.analysis && normalized.analysis.tangent) { expressions.push(normalized.analysis.tangent.x); }
+  return expressions.some(function (text) {
+    try { return window.FunctionPlotter.compileExpression(text, values).usedParameters.length > 0; }
+    catch (_) { return false; }
+  });
 }
 
 function applyConfig(config, editing) {
@@ -423,6 +458,9 @@ function applyConfig(config, editing) {
   node("guideLines").value = (normalized.guides || []).map(function (guide) {
     return guide.axis + "=" + guide.expression;
   }).join("\n");
+  if (node("parameterSettings")) { node("parameterSettings").open = usesParameterControls(normalized); }
+  if (node("pointSettings")) { node("pointSettings").open = Boolean(normalized.points && normalized.points.length); }
+  if (node("guideSettings")) { node("guideSettings").open = Boolean(normalized.guides && normalized.guides.length); }
   if (window.MathPlotAnalysisPanel) { window.MathPlotAnalysisPanel.apply(normalized, activeExpressionRows()); }
   setEditingMode(editing);
   return renderPreview();
@@ -470,15 +508,44 @@ function getApplication() {
   return window.Application || window.wps || null;
 }
 
+/**
+ * 在表单根节点上以捕获方式统一记录用户修改，覆盖滑块、曲线样式、参数范围、分析设置等全部输入控件。
+ * 收藏名称、收藏列表与备份文字不影响图像内容，不计入草稿修改。
+ * @param {Element} root 绘图面板根节点
+ * @returns {boolean} 是否成功挂接监听
+ */
+function trackFormModifications(root) {
+  if (!root || typeof root.addEventListener !== "function") { return false; }
+  function mark(event) {
+    var target = event && event.target;
+    var id = target && target.id;
+    if (id === "favoriteName" || id === "favoriteList" || id === "favoriteBackup") { return; }
+    formModifiedByUser = true;
+  }
+  root.addEventListener("input", mark, true);
+  root.addEventListener("change", mark, true);
+  return true;
+}
+
 function synchronizeSelectionMode() {
   var selected = null;
+  var reopened = false;
   try {
     var app = getApplication();
     if (app && window.MathFunctionDocument) {
       selected = window.MathFunctionDocument.getSelectedPlot(app);
     }
+    if (window.MathTaskPanes && typeof window.MathTaskPanes.consumeReopen === "function") {
+      reopened = window.MathTaskPanes.consumeReopen("function-plot");
+    }
   } catch (_) {
     selected = null;
+  }
+  if (reopened && selected && !loadedTarget) {
+    if (!formModifiedByUser && loadSelectedPlot(false)) {
+      return editingSelectedPlot;
+    }
+    setStatus("检测到文档中已选中函数图像，点击“载入所选图像”即可编辑。", false);
   }
   var hasTarget = Boolean(loadedTarget && selected);
   setEditingMode(hasTarget, hasTarget && !window.MathFunctionDocument.samePlot(loadedTarget, selected));
@@ -538,6 +605,8 @@ function loadSelectedPlot(showMissingMessage) {
     }
     if (!applyConfig(selected.config, true)) { return false; }
     loadedTarget = selected;
+    // 表单已与文档中的图像同步，此后的修改才算草稿
+    formModifiedByUser = false;
     setStatus("已载入所选函数图像，可修改后点击“更新所选图像”。", false);
     return true;
   } catch (error) {
@@ -577,8 +646,11 @@ function insertCurrentPlot() {
         " 当前页没有完整空白区域，已采用最低重叠位置。" :
         " 已自动避开当前页已有内容。";
     }
-    loadedTarget = result.host === "presentation" ? window.MathFunctionDocument.getSelectedPlot(app) : null;
+    loadedTarget = (result.host === "presentation" || result.updated) ?
+      window.MathFunctionDocument.getSelectedPlot(app) : null;
     setEditingMode(Boolean(loadedTarget));
+    // 当前表单内容已写入文档，不再属于未保存草稿
+    formModifiedByUser = false;
     setStatus(result.message + placementMessage, false);
   } catch (error) {
     setStatus("无法插入函数图像：" + error.message, true);
@@ -626,7 +698,9 @@ window.addEventListener("DOMContentLoaded", function () {
       options: { showTickLabels: true, showGrid: true, showBorder: true, showLegend: true }
     };
   applyConfig(defaultConfig, false);
+  trackFormModifications(node("functionPlotApp"));
   node("addExpressionButton").addEventListener("click", function () {
+    formModifiedByUser = true;
     addExpressionRow("", true);
   });
   node("loadSelectionButton").addEventListener("click", function () {
@@ -641,6 +715,7 @@ window.addEventListener("DOMContentLoaded", function () {
   if (window.MathPlotAnalysisPanel) { window.MathPlotAnalysisPanel.initialize(renderPreview); }
   elements("[data-preset]").forEach(function (button) {
     button.addEventListener("click", function () {
+      formModifiedByUser = true;
       applyPreset(button.getAttribute("data-preset"));
     });
   });
